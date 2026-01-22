@@ -1,0 +1,58 @@
+{% extends "base.html" %} {% block title %}Ready to Scan - Meal Plan
+Verification{% endblock %} {% block content %}
+<div class="container">
+  <div class="card">
+    <div class="header">
+      <h1>🍽️ Meal Plan Verification</h1>
+      <div class="station">{{ station_name }}</div>
+    </div>
+
+    <div class="icon" id="status-icon">💳</div>
+
+    <div class="message" id="status-message">
+      <strong>READY</strong><br />
+      Please scan your student ID card
+    </div>
+
+    <div
+      class="status-badge status-success"
+      id="status-badge"
+      style="display: none"
+    >
+      Waiting for card...
+    </div>
+
+    <div style="margin-top: 40px">
+      <a href="/manual" class="btn btn-secondary"> Manual Entry </a>
+    </div>
+  </div>
+</div>
+{% endblock %} {% block scripts %}
+<script>
+  const statusIcon = document.getElementById("status-icon");
+  const statusMessage = document.getElementById("status-message");
+
+  // Listen for card scans
+  // The RFID reader service will POST to /api/scan-card
+  // We'll poll for updates or use WebSocket (simplified here with polling)
+
+  let lastCardCheck = Date.now();
+  let processing = false;
+
+  // This page would typically receive real-time updates via WebSocket
+  // For now, it's the landing page where cashiers start
+
+  // Animate the card icon
+  function animateWaiting() {
+    statusIcon.style.transform = "scale(1.1)";
+    setTimeout(() => {
+      statusIcon.style.transform = "scale(1.0)";
+    }, 500);
+  }
+
+  setInterval(animateWaiting, 2000);
+
+  // In production, implement WebSocket or Server-Sent Events
+  // to receive real-time card scan notifications and redirect to student_info.html
+</script>
+{% endblock %}
