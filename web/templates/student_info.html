@@ -48,7 +48,6 @@ block content %}
 </div>
 
 <script>
-  // Get student ID from URL parameter
   const urlParams = new URLSearchParams(window.location.search);
   const studentId = urlParams.get("student");
 
@@ -108,6 +107,7 @@ block content %}
     const buttonsDiv = document.getElementById("action-buttons");
 
     if (eligibility.eligible) {
+      // ELIGIBLE - Only show APPROVE button (no deny button)
       statusDiv.className = "status-badge status-success";
       statusDiv.textContent = "✅ ELIGIBLE FOR MEAL";
 
@@ -115,21 +115,46 @@ block content %}
             <button onclick="approveMeal('${student.student_id}')" class="btn btn-success">
                 ✓ APPROVE MEAL
             </button>
-            <button onclick="denyMeal('${student.student_id}')" class="btn btn-danger">
-                ✗ DENY
-            </button>
             <a href="/" class="btn btn-secondary">← Back</a>
         `;
     } else {
+      // NOT ELIGIBLE - Show reason, auto-return after 5 seconds
       statusDiv.className = "status-badge status-error";
       statusDiv.textContent = "❌ NOT ELIGIBLE";
 
       buttonsDiv.innerHTML = `
-            <div class="message" style="color: #ef4444; margin-bottom: 20px;">
-                ${eligibility.reason}
+            <div class="message" style="color: #ef4444; margin-bottom: 20px; font-size: 28px;">
+                <strong>${eligibility.reason}</strong>
             </div>
-            <a href="/" class="btn btn-secondary">← Back to Main</a>
+            <div style="font-size: 20px; color: #6b7280; margin-bottom: 20px;">
+                Returning to main screen in <span id="countdown">5</span> seconds...
+            </div>
+            <a href="/" class="btn btn-secondary" onclick="clearCountdown()">← Return Now</a>
         `;
+
+      // Auto-redirect countdown
+      let timeLeft = 5;
+      const countdownInterval = setInterval(() => {
+        timeLeft--;
+        const countdownEl = document.getElementById("countdown");
+        if (countdownEl) {
+          countdownEl.textContent = timeLeft;
+        }
+
+        if (timeLeft <= 0) {
+          clearInterval(countdownInterval);
+          window.location.href = "/";
+        }
+      }, 1000);
+
+      // Store interval ID globally so we can clear it if user clicks button
+      window.currentCountdown = countdownInterval;
+    }
+  }
+
+  function clearCountdown() {
+    if (window.currentCountdown) {
+      clearInterval(window.currentCountdown);
     }
   }
 
@@ -146,21 +171,6 @@ block content %}
         } else {
           alert("❌ Error: " + data.message);
         }
-      });
-  }
-
-  function denyMeal(studentId) {
-    fetch("/api/deny-meal", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        student_id: studentId,
-        reason: "Manual denial by cashier",
-      }),
-    })
-      .then((response) => response.json())
-      .then((data) => {
-        window.location.href = "/denied?student=" + studentId;
       });
   }
 </script>

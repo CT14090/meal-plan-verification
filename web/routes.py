@@ -37,6 +37,21 @@ def manual_entry():
     """Manual student ID entry (fallback when card fails)"""
     return render_template('manual_entry.html')
 
+@main_bp.route('/student-info')
+def student_info():
+    """Student info display (for RFID scans and manual entry)"""
+    return render_template('student_info.html')
+
+@main_bp.route('/approved')
+def approved():
+    """Meal approved confirmation"""
+    return render_template('approved.html')
+
+@main_bp.route('/denied')
+def denied():
+    """Meal denied screen"""
+    return render_template('denied.html')
+
 # ==================== API ENDPOINTS ====================
 
 @api_bp.route('/scan-card', methods=['POST'])
@@ -438,30 +453,22 @@ def export_students():
 def trigger_reset():
     """Manually trigger daily reset"""
     try:
-        scheduler = get_scheduler_service()
-        success = scheduler.trigger_reset_now()
+        logger.info("Manual daily reset triggered from admin panel")
+        
+        # Call the reset function directly from db_manager
+        deleted_count = db_manager.reset_daily_usage()
+        
+        logger.info(f"Manual reset completed. Cleared {deleted_count} usage records.")
         
         return jsonify({
-            'success': success,
-            'message': 'Daily reset triggered' if success else 'Reset failed'
+            'success': True,
+            'message': f'Daily reset completed. Cleared {deleted_count} usage records.',
+            'records_cleared': deleted_count
         })
     except Exception as e:
         logger.error(f"Error triggering reset: {e}")
         return jsonify({
             'success': False,
-            'error': str(e)
+            'error': str(e),
+            'message': 'Reset failed. Check server logs.'
         }), 500
-@main_bp.route('/student-info')
-def student_info():
-    """Student info display (for RFID scans)"""
-    return render_template('student_info.html')
-
-@main_bp.route('/approved')
-def approved():
-    """Meal approved confirmation"""
-    return render_template('approved.html')
-
-@main_bp.route('/denied')
-def denied():
-    """Meal denied screen"""
-    return render_template('denied.html')
