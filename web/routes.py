@@ -451,3 +451,17 @@ def trigger_reset():
             'success': False,
             'error': str(e)
         }), 500
+@main_bp.route('/student-info')
+def student_info():
+    """Student info display (for RFID scans)"""
+    return render_template('student_info.html')
+
+@main_bp.route('/approved')
+def approved():
+    """Meal approved confirmation"""
+    return render_template('approved.html')
+
+@main_bp.route('/denied')
+def denied():
+    """Meal denied screen"""
+    return render_template('denied.html')

@@ -1,0 +1,153 @@
+{% extends "base.html" %} {% block title %}Manual Entry{% endblock %} {% block
+styles %}
+<style>
+  body {
+    overflow-y: auto !important;
+    height: auto !important;
+  }
+  .container {
+    height: auto;
+    min-height: 100vh;
+    overflow-y: visible;
+  }
+</style>
+{% endblock %} {% block content %}
+<div class="container">
+  <div class="card" id="entry-card" style="margin-bottom: 40px">
+    <div class="header">
+      <h1>🔢 Manual Student Entry</h1>
+      <div class="station">{{ station_name }}</div>
+    </div>
+
+    <div class="message">Enter Student ID</div>
+
+    <div style="margin: 40px 0">
+      <input
+        type="text"
+        id="student-id"
+        placeholder="Student ID"
+        autofocus
+        style="
+          font-size: 32px;
+          padding: 20px;
+          width: 100%;
+          max-width: 400px;
+          border: 3px solid #667eea;
+          border-radius: 12px;
+          text-align: center;
+        "
+      />
+
+      <div style="margin-top: 30px">
+        <button onclick="lookupStudent()" class="btn btn-success">
+          ✓ Lookup Student
+        </button>
+        <a href="/" class="btn btn-secondary">← Back</a>
+      </div>
+    </div>
+
+    <div id="result"></div>
+  </div>
+</div>
+
+<script>
+  function lookupStudent() {
+    const studentId = document.getElementById("student-id").value.trim();
+    const resultDiv = document.getElementById("result");
+
+    if (!studentId) {
+      alert("Please enter a student ID");
+      return;
+    }
+
+    resultDiv.innerHTML = '<div class="loading"></div>';
+
+    fetch("/api/manual-lookup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ student_id: studentId }),
+    })
+      .then((response) => response.json())
+      .then((data) => {
+        if (data.success) {
+          showStudent(data.student, data.eligibility);
+        } else {
+          resultDiv.innerHTML =
+            '<div class="status-badge status-error">❌ Student Not Found</div>';
+        }
+      })
+      .catch((error) => {
+        resultDiv.innerHTML =
+          '<div class="status-badge status-error">❌ Error: ' +
+          error.message +
+          "</div>";
+      });
+  }
+
+  function showStudent(student, eligibility) {
+    const resultDiv = document.getElementById("result");
+
+    if (eligibility.eligible) {
+      resultDiv.innerHTML = `
+            <div class="status-badge status-success">✅ ELIGIBLE</div>
+            <div class="student-info">
+                <h2>👤 ${student.student_name}</h2>
+                <div class="detail"><span>ID:</span> <strong>${student.student_id}</strong></div>
+                <div class="detail"><span>Grade:</span> <strong>${student.grade_level}</strong></div>
+                <div class="detail"><span>Plan:</span> <strong>${student.meal_plan_type}</strong></div>
+                <div class="detail"><span>Meals Today:</span> <strong>${eligibility.meals_used} / ${student.daily_meal_limit}</strong></div>
+                <div style="margin-top: 30px;">
+                    <button onclick="approveMeal('${student.student_id}')" class="btn btn-success">✓ APPROVE</button>
+                    <button onclick="denyMeal('${student.student_id}')" class="btn btn-danger">✗ DENY</button>
+                </div>
+            </div>
+        `;
+    } else {
+      resultDiv.innerHTML = `
+            <div class="status-badge status-error">❌ NOT ELIGIBLE</div>
+            <div class="student-info">
+                <h2>👤 ${student.student_name}</h2>
+                <div class="detail"><span>Reason:</span> <strong style="color: #ef4444;">${eligibility.reason}</strong></div>
+                <div style="margin-top: 20px;"><a href="/manual" class="btn btn-secondary">Try Another</a></div>
+            </div>
+        `;
+    }
+  }
+
+  function approveMeal(studentId) {
+    fetch("/api/approve-meal", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ student_id: studentId, meal_type: "Lunch" }),
+    })
+      .then((response) => response.json())
+      .then((data) => {
+        if (data.success) {
+          alert("✅ Meal Approved!");
+          location.reload();
+        } else {
+          alert("❌ Error: " + data.message);
+        }
+      });
+  }
+
+  function denyMeal(studentId) {
+    fetch("/api/deny-meal", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ student_id: studentId }),
+    }).then(() => {
+      alert("Meal Denied");
+      location.reload();
+    });
+  }
+
+  document
+    .getElementById("student-id")
+    .addEventListener("keypress", function (e) {
+      if (e.key === "Enter") {
+        lookupStudent();
+      }
+    });
+</script>
+{% endblock %}

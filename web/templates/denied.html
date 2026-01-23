@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+
+{% block title %}Meal Denied{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="card">
+        <div class="header">
+            <h1>🍽️ Meal Plan Verification</h1>
+            <div class="station">{{ station_name }}</div>
+        </div>
+        
+        <div class="icon" style="font-size: 180px;">⛔</div>
+        
+        <div class="status-badge status-error">
+            MEAL DENIED
+        </div>
+        
+        <div class="message" style="margin-top: 30px;">
+            <strong id="student-name">Student</strong><br>
+            <span id="denial-reason" style="color: #ef4444;">Transaction denied</span>
+        </div>
+        
+        <div class="student-info" style="margin-top: 30px; background: #fee2e2; padding: 30px; border-radius: 12px;">
+            <div class="detail">
+                <span>Reason:</span>
+                <strong id="reason-text" style="color: #dc2626;">---</strong>
+            </div>
+        </div>
+        
+        <div style="margin-top: 40px;">
+            <a href="/" class="btn btn-secondary">← Back to Main</a>
+        </div>
+    </div>
+</div>
+
+<script>
+const urlParams = new URLSearchParams(window.location.search);
+const studentId = urlParams.get('student');
+
+if (studentId) {
+    fetch('/api/manual-lookup', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ student_id: studentId })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            document.getElementById('student-name').textContent = data.student.student_name;
+            
+            if (!data.eligibility.eligible) {
+                document.getElementById('denial-reason').textContent = data.eligibility.reason;
+                document.getElementById('reason-text').textContent = data.eligibility.reason;
+            }
+        }
+    });
+}
+
+// Auto-redirect after 5 seconds
+setTimeout(() => {
+    window.location.href = '/';
+}, 5000);
+</script>
+{% endblock %}

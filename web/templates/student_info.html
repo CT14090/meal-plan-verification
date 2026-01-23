@@ -1,0 +1,167 @@
+{% extends "base.html" %} {% block title %}Student Verification{% endblock %} {%
+block content %}
+<div class="container">
+  <div class="card">
+    <div class="header">
+      <h1>🍽️ Meal Plan Verification</h1>
+      <div class="station">{{ station_name }}</div>
+    </div>
+
+    <div class="icon">👤</div>
+
+    <div class="student-info">
+      <h2 id="student-name">Loading...</h2>
+
+      <div class="detail">
+        <span>Student ID:</span>
+        <strong id="student-id">---</strong>
+      </div>
+
+      <div class="detail">
+        <span>Grade:</span>
+        <strong id="grade">---</strong>
+      </div>
+
+      <div class="detail">
+        <span>Meal Plan:</span>
+        <strong id="meal-plan">---</strong>
+      </div>
+
+      <div class="detail">
+        <span>Daily Limit:</span>
+        <strong id="daily-limit">---</strong>
+      </div>
+
+      <div class="usage-bar" id="usage-bar">
+        <div class="usage-bar-fill" id="usage-fill">0 / 0 used</div>
+      </div>
+
+      <div
+        id="eligibility-status"
+        class="status-badge"
+        style="margin: 30px 0"
+      ></div>
+
+      <div id="action-buttons" style="margin-top: 30px"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  // Get student ID from URL parameter
+  const urlParams = new URLSearchParams(window.location.search);
+  const studentId = urlParams.get("student");
+
+  if (studentId) {
+    loadStudent(studentId);
+  } else {
+    window.location.href = "/";
+  }
+
+  function loadStudent(id) {
+    fetch("/api/manual-lookup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ student_id: id }),
+    })
+      .then((response) => response.json())
+      .then((data) => {
+        if (data.success) {
+          displayStudent(data.student, data.eligibility);
+        } else {
+          document.getElementById("student-name").textContent =
+            "Student Not Found";
+          document.getElementById("eligibility-status").className =
+            "status-badge status-error";
+          document.getElementById("eligibility-status").textContent =
+            "❌ " + data.message;
+        }
+      })
+      .catch((error) => {
+        document.getElementById("student-name").textContent = "Error";
+        document.getElementById("eligibility-status").className =
+          "status-badge status-error";
+        document.getElementById("eligibility-status").textContent =
+          "❌ System Error";
+      });
+  }
+
+  function displayStudent(student, eligibility) {
+    document.getElementById("student-name").textContent = student.student_name;
+    document.getElementById("student-id").textContent = student.student_id;
+    document.getElementById("grade").textContent = student.grade_level;
+    document.getElementById("meal-plan").textContent = student.meal_plan_type;
+    document.getElementById("daily-limit").textContent =
+      student.daily_meal_limit + " meals";
+
+    const usagePct = (eligibility.meals_used / student.daily_meal_limit) * 100;
+    const usageFill = document.getElementById("usage-fill");
+    usageFill.style.width = usagePct + "%";
+    usageFill.textContent =
+      eligibility.meals_used + " / " + student.daily_meal_limit + " used";
+
+    if (usagePct >= 100) {
+      usageFill.classList.add("full");
+    }
+
+    const statusDiv = document.getElementById("eligibility-status");
+    const buttonsDiv = document.getElementById("action-buttons");
+
+    if (eligibility.eligible) {
+      statusDiv.className = "status-badge status-success";
+      statusDiv.textContent = "✅ ELIGIBLE FOR MEAL";
+
+      buttonsDiv.innerHTML = `
+            <button onclick="approveMeal('${student.student_id}')" class="btn btn-success">
+                ✓ APPROVE MEAL
+            </button>
+            <button onclick="denyMeal('${student.student_id}')" class="btn btn-danger">
+                ✗ DENY
+            </button>
+            <a href="/" class="btn btn-secondary">← Back</a>
+        `;
+    } else {
+      statusDiv.className = "status-badge status-error";
+      statusDiv.textContent = "❌ NOT ELIGIBLE";
+
+      buttonsDiv.innerHTML = `
+            <div class="message" style="color: #ef4444; margin-bottom: 20px;">
+                ${eligibility.reason}
+            </div>
+            <a href="/" class="btn btn-secondary">← Back to Main</a>
+        `;
+    }
+  }
+
+  function approveMeal(studentId) {
+    fetch("/api/approve-meal", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ student_id: studentId, meal_type: "Lunch" }),
+    })
+      .then((response) => response.json())
+      .then((data) => {
+        if (data.success) {
+          window.location.href = "/approved?student=" + studentId;
+        } else {
+          alert("❌ Error: " + data.message);
+        }
+      });
+  }
+
+  function denyMeal(studentId) {
+    fetch("/api/deny-meal", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        student_id: studentId,
+        reason: "Manual denial by cashier",
+      }),
+    })
+      .then((response) => response.json())
+      .then((data) => {
+        window.location.href = "/denied?student=" + studentId;
+      });
+  }
+</script>
+{% endblock %}
