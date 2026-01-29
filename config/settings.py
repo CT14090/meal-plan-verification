@@ -42,7 +42,7 @@ class Config:
     
     # SQLAlchemy Settings
     SQLALCHEMY_TRACK_MODIFICATIONS = False
-    SQLALCHEMY_ECHO = FLASK_DEBUG
+    SQLALCHEMY_ECHO = False  # Disable SQL query logging in terminal
     
     # Station Configuration
     STATION_ID = os.getenv('STATION_ID', 'Station_1')

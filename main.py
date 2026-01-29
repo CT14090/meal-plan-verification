@@ -19,6 +19,7 @@ logger = get_logger(__name__)
 rfid_service = None
 scheduler_service = None
 app = None
+scan_counter = 0
 
 def signal_handler(sig, frame):
     """Handle Ctrl+C gracefully"""
@@ -50,17 +51,45 @@ def on_card_scanned(card_uid):
     """
     import requests
     
+    # Print to console for visibility
+    print(f"\n📇 Card Scanned: {card_uid[:8]}***")
+    
     try:
         # Send to local Flask API
         url = f"http://{config.FLASK_HOST}:{config.FLASK_PORT}/api/scan-card"
         response = requests.post(url, json={'card_uid': card_uid}, timeout=2)
         
+        print(f"   API Response: {response.status_code}")
+        
         if response.status_code == 200:
+            data = response.json()
+            if data.get('success'):
+                student = data.get('student', {})
+                eligibility = data.get('eligibility', {})
+                student_name = student.get('student_name', 'Unknown')
+                student_id = student.get('student_id', 'N/A')
+                is_eligible = eligibility.get('eligible', False)
+                meals_used = eligibility.get('meals_used', 0)
+                daily_limit = student.get('daily_meal_limit', 0)
+                
+                print(f"✅ Student: {student_name} ({student_id})")
+                print(f"   Eligible: {is_eligible}")
+                print(f"   Meals used: {meals_used}/{daily_limit}")
+            else:
+                print(f"❌ Card not found in system")
             logger.info(f"Card {card_uid[:8]}*** processed successfully")
         else:
+            print(f"⚠️  Card processing failed: HTTP {response.status_code}")
+            try:
+                error_data = response.json()
+                error_msg = error_data.get('message', 'Unknown error')
+                print(f"   Error: {error_msg}")
+            except:
+                pass
             logger.warning(f"Card processing failed: {response.status_code}")
     
     except Exception as e:
+        print(f"❌ Error processing card: {e}")
         logger.error(f"Error sending card to API: {e}")
 
 def start_system():

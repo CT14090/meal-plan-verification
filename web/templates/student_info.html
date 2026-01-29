@@ -7,7 +7,7 @@ block content %}
       <div class="station">{{ station_name }}</div>
     </div>
 
-    <div class="icon">👤</div>
+    <div class="icon">��</div>
 
     <div class="student-info">
       <h2 id="student-name">Loading...</h2>
@@ -58,6 +58,9 @@ block content %}
   }
 
   function loadStudent(id) {
+    // Get student info but DON'T clear lookup yet
+    // (lookup will be cleared when we navigate away)
+    
     fetch("/api/manual-lookup", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -75,12 +78,12 @@ block content %}
           document.getElementById("eligibility-status").textContent =
             "❌ " + data.message;
 
-          // Log the denial
+          // Log the denial for student not found
           logDenial(id, data.message || "Student not found");
 
           // Auto-return after showing error
           setTimeout(() => {
-            window.location.href = "/";
+            clearLookupAndReturn();
           }, 3000);
         }
       })
@@ -92,7 +95,7 @@ block content %}
           "❌ System Error";
 
         setTimeout(() => {
-          window.location.href = "/";
+          clearLookupAndReturn();
         }, 3000);
       });
   }
@@ -127,10 +130,10 @@ block content %}
             <button onclick="approveMeal('${student.student_id}')" class="btn btn-success">
                 ✓ APPROVE MEAL
             </button>
-            <a href="/" class="btn btn-secondary">← Back</a>
+            <a href="/" class="btn btn-secondary" onclick="clearLookupAndReturn(); return false;">← Back</a>
         `;
     } else {
-      // NOT ELIGIBLE - Show reason, log denial, auto-return after 2 seconds
+      // NOT ELIGIBLE - Show reason, log denial, auto-return
       statusDiv.className = "status-badge status-error";
       statusDiv.textContent = "❌ NOT ELIGIBLE";
 
@@ -139,16 +142,16 @@ block content %}
                 <strong>${eligibility.reason}</strong>
             </div>
             <div style="font-size: 16px; color: #6b7280; margin-bottom: 15px;">
-                Returning in <span id="countdown">2</span> seconds...
+                Returning in <span id="countdown">3</span> seconds...
             </div>
-            <a href="/" class="btn btn-secondary" onclick="clearCountdown()">← Return Now</a>
+            <a href="/" class="btn btn-secondary" onclick="clearCountdown(); clearLookupAndReturn(); return false;">← Return Now</a>
         `;
 
-      // Log the denial to database
+      // Log the denial to database (ONLY for ineligible students)
       logDenial(student.student_id, eligibility.reason);
 
       // Auto-redirect countdown
-      let timeLeft = 2;
+      let timeLeft = 3;
       const countdownInterval = setInterval(() => {
         timeLeft--;
         const countdownEl = document.getElementById("countdown");
@@ -158,7 +161,7 @@ block content %}
 
         if (timeLeft <= 0) {
           clearInterval(countdownInterval);
-          window.location.href = "/";
+          clearLookupAndReturn();
         }
       }, 1000);
 
@@ -185,8 +188,27 @@ block content %}
       clearInterval(window.currentCountdown);
     }
   }
+  
+  function clearLookupAndReturn() {
+    // Clear lookup before returning to waiting screen
+    fetch("/api/clear-lookup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    }).then(() => {
+      console.log('✅ Lookup cleared, returning to waiting screen');
+      window.location.href = "/";
+    }).catch(() => {
+      // Even if clearing fails, still return
+      window.location.href = "/";
+    });
+  }
 
   function approveMeal(studentId) {
+    // Disable the button to prevent double-clicks
+    const approveBtn = event.target;
+    approveBtn.disabled = true;
+    approveBtn.textContent = "Processing...";
+    
     fetch("/api/approve-meal", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -195,10 +217,19 @@ block content %}
       .then((response) => response.json())
       .then((data) => {
         if (data.success) {
+          console.log('✅ Meal approved, navigating to approved page');
+          // Navigate to approved page (lookup will be cleared there)
           window.location.href = "/approved?student=" + studentId;
         } else {
           alert("❌ Error: " + data.message);
+          approveBtn.disabled = false;
+          approveBtn.textContent = "✓ APPROVE MEAL";
         }
+      })
+      .catch((error) => {
+        alert("❌ Error approving meal: " + error.message);
+        approveBtn.disabled = false;
+        approveBtn.textContent = "✓ APPROVE MEAL";
       });
   }
 </script>

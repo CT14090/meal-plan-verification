@@ -12,58 +12,23 @@ content %}
     <div class="status-badge status-success">MEAL APPROVED</div>
 
     <div class="message" style="margin-top: 20px">
-      <strong id="student-name">Student</strong><br />
-      Transaction completed successfully
-    </div>
-
-    <div class="student-info" style="margin-top: 20px">
-      <div class="detail">
-        <span>Meals Used Today:</span>
-        <strong id="meals-used">--- / ---</strong>
-      </div>
-      <div class="detail">
-        <span>Remaining Today:</span>
-        <strong id="meals-remaining" style="color: #10b981">---</strong>
-      </div>
+      <strong>Transaction Completed</strong><br />
+      Have a great meal!
     </div>
 
     <div style="margin-top: 20px; font-size: 16px; color: #6b7280">
-      Returning in <span id="countdown">2</span> seconds...
+      Returning in <span id="countdown">3</span> seconds...
     </div>
 
     <div style="margin-top: 15px">
-      <a href="/" class="btn btn-success" onclick="clearCountdown()"
-        >← Return Now</a
-      >
+      <a href="/" class="btn btn-success" onclick="clearCountdown(); clearLookupAndReturn(); return false;">← Return Now</a>
     </div>
   </div>
 </div>
 
 <script>
-  const urlParams = new URLSearchParams(window.location.search);
-  const studentId = urlParams.get("student");
-
-  if (studentId) {
-    fetch("/api/manual-lookup", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ student_id: studentId }),
-    })
-      .then((response) => response.json())
-      .then((data) => {
-        if (data.success) {
-          document.getElementById("student-name").textContent =
-            data.student.student_name;
-          document.getElementById("meals-used").textContent =
-            data.eligibility.meals_used + " / " + data.student.daily_meal_limit;
-          document.getElementById("meals-remaining").textContent =
-            data.eligibility.meals_remaining + " meal(s)";
-        }
-      });
-  }
-
-  // Auto-redirect countdown (2 seconds)
-  let timeLeft = 2;
+  // Auto-redirect countdown (3 seconds)
+  let timeLeft = 3;
   const countdownInterval = setInterval(() => {
     timeLeft--;
     const countdownEl = document.getElementById("countdown");
@@ -73,7 +38,7 @@ content %}
 
     if (timeLeft <= 0) {
       clearInterval(countdownInterval);
-      window.location.href = "/";
+      clearLookupAndReturn();
     }
   }, 1000);
 
@@ -83,6 +48,20 @@ content %}
     if (window.currentCountdown) {
       clearInterval(window.currentCountdown);
     }
+  }
+  
+  function clearLookupAndReturn() {
+    // Clear the MUNDOWARE lookup to prevent re-detection, then return
+    fetch("/api/clear-lookup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    }).then(() => {
+      console.log('✅ Lookup cleared after approval, returning to waiting screen');
+      window.location.href = "/";
+    }).catch(() => {
+      // Even if clearing fails, still return
+      window.location.href = "/";
+    });
   }
 </script>
 {% endblock %}

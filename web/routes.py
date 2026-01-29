@@ -58,18 +58,6 @@ def denied():
 def scan_card():
     """
     Handle card scan from RFID reader
-    
-    Request JSON:
-        {
-            "card_uid": "04A3B2C145"
-        }
-    
-    Response JSON:
-        {
-            "success": true,
-            "student": {...},
-            "eligibility": {...}
-        }
     """
     try:
         data = request.get_json()
@@ -102,6 +90,7 @@ def scan_card():
         
         # Update MUNDOWARE lookup table
         db_manager.update_mundoware_lookup(student, eligibility['eligible'])
+        print(f"📝 Updated MUNDOWARE lookup: {student_data['student_id']} (eligible: {eligibility['eligible']})")
         
         return jsonify({
             'success': True,
@@ -121,11 +110,6 @@ def scan_card():
 def manual_lookup():
     """
     Manual student lookup by ID
-    
-    Request JSON:
-        {
-            "student_id": "12345"
-        }
     """
     try:
         data = request.get_json()
@@ -176,17 +160,11 @@ def manual_lookup():
 def approve_meal():
     """
     Approve meal transaction
-    
-    Request JSON:
-        {
-            "student_id": "12345",
-            "meal_type": "Lunch"  (optional)
-        }
     """
     try:
         data = request.get_json()
         student_id = data.get('student_id')
-        meal_type = data.get('meal_type')  # May be None if not selected yet
+        meal_type = data.get('meal_type')
         
         if not student_id:
             return jsonify({
@@ -250,6 +228,9 @@ def approve_meal():
         
         logger.info(f"Meal approved: {student_id} - {meal_type}")
         
+        # Console output for visibility
+        print(f"✅ MEAL APPROVED: {student_name} ({student_id}) - {meal_type or 'Unknown'}")
+        
         # Get updated usage
         updated_eligibility = db_manager.check_eligibility(student)
         
@@ -271,12 +252,6 @@ def approve_meal():
 def deny_meal():
     """
     Deny meal transaction (manual override by cashier)
-    
-    Request JSON:
-        {
-            "student_id": "12345",
-            "reason": "Manual denial reason"
-        }
     """
     try:
         data = request.get_json()
@@ -312,6 +287,9 @@ def deny_meal():
         log_transaction(student_id, student_name, 'N/A', 'Denied', reason)
         logger.info(f"Meal denied: {student_id} - {reason}")
         
+        # Console output
+        print(f"❌ MEAL DENIED: {student_name} ({student_id}) - {reason}")
+        
         # Clear MUNDOWARE lookup
         db_manager.clear_mundoware_lookup()
         
@@ -343,6 +321,65 @@ def get_stats():
             'success': False,
             'error': str(e)
         }), 500
+
+@api_bp.route('/check-recent-scan', methods=['GET'])
+def check_recent_scan():
+    """Check if a card was recently scanned (for auto-navigation)"""
+    try:
+        from database.models import MundowareStudentLookup
+        from datetime import datetime, timedelta
+        
+        # Check if there's a recent lookup (within last 5 seconds)
+        recent_cutoff = datetime.utcnow() - timedelta(seconds=5)
+        
+        # Debug: check ALL lookups for this station
+        all_lookups = MundowareStudentLookup.query.filter(
+            MundowareStudentLookup.station_id == config.STATION_ID
+        ).all()
+        
+        lookup = MundowareStudentLookup.query.filter(
+            MundowareStudentLookup.station_id == config.STATION_ID,
+            MundowareStudentLookup.timestamp >= recent_cutoff
+        ).order_by(MundowareStudentLookup.timestamp.desc()).first()
+        
+        if lookup:
+            print(f"🔍 Recent scan detected: {lookup.student_id} (timestamp: {lookup.timestamp})")
+            logger.info(f"Recent scan detected for navigation: {lookup.student_id}")
+            return jsonify({
+                'success': True,
+                'student_id': lookup.student_id,
+                'timestamp': lookup.timestamp.isoformat()
+            })
+        else:
+            # Only log if there are lookups but none are recent
+            if all_lookups:
+                oldest = all_lookups[0]
+                age = (datetime.utcnow() - oldest.timestamp).total_seconds()
+                print(f"🔍 Lookup exists but too old: {oldest.student_id} ({age:.1f}s ago)")
+            return jsonify({
+                'success': True,
+                'student_id': None
+            })
+    
+    except Exception as e:
+        logger.error(f"Error checking recent scan: {e}")
+        print(f"❌ Error in check-recent-scan: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@api_bp.route('/clear-lookup', methods=['POST'])
+def clear_lookup():
+    """Clear the MUNDOWARE lookup table for this station"""
+    try:
+        db_manager.clear_mundoware_lookup()
+        print(f"🧹 Cleared MUNDOWARE lookup for {config.STATION_ID}")
+        return jsonify({'success': True})
+    except Exception as e:
+        logger.error(f"Error clearing lookup: {e}")
+        print(f"❌ Error clearing lookup: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 # ==================== ADMIN ROUTES ====================
 
@@ -416,37 +453,59 @@ def generate_sample_data():
 def trigger_reset():
     """Manually trigger daily reset - clears usage AND today's transactions"""
     try:
+        reset_line = "=" * 60
+        print("")
+        print(reset_line)
+        print("DAILY RESET STARTED")
+        print(reset_line)
+        
         logger.info("Manual daily reset triggered from admin panel")
         
         from datetime import date, datetime
-        from database.models import DailyMealUsage
+        from database.models import DailyMealUsage, MundowareStudentLookup
         
-        # 1. Delete ALL daily meal usage records (students get fresh allowances)
+        # 1. Delete ALL daily meal usage records
         deleted_usage = DailyMealUsage.query.delete()
-        logger.info(f"Cleared {deleted_usage} usage records - all students now have fresh allowances")
+        print(f"Cleared {deleted_usage} daily usage records")
+        logger.info(f"Cleared {deleted_usage} usage records")
         
-        # 2. Delete today's transactions (so stats show 0)
+        # 2. Delete today's transactions
         today = date.today()
         today_start = datetime.combine(today, datetime.min.time())
         
         deleted_transactions = MealTransaction.query.filter(
             MealTransaction.transaction_timestamp >= today_start
         ).delete()
+        print(f"Deleted {deleted_transactions} transaction records")
         
+        # 3. Clear ALL MUNDOWARE lookup entries
+        deleted_lookups = MundowareStudentLookup.query.delete()
+        print(f"Cleared {deleted_lookups} MUNDOWARE lookup entries")
+        
+        # Commit all changes
         db.session.commit()
-        logger.info(f"Deleted {deleted_transactions} transaction records from today")
+        print("Database committed successfully")
         
-        total_deleted = deleted_usage + deleted_transactions
+        logger.info(f"Reset complete: {deleted_usage} usage, {deleted_transactions} transactions, {deleted_lookups} lookups")
+        
+        total_deleted = deleted_usage + deleted_transactions + deleted_lookups
+        
+        print(reset_line)
+        print("DAILY RESET COMPLETE - Ready for new scans")
+        print(reset_line)
+        print("")
         
         return jsonify({
             'success': True,
-            'message': f'Daily reset completed. All students have fresh meal allowances.',
+            'message': 'Daily reset completed. All students have fresh meal allowances.',
             'records_cleared': total_deleted,
             'usage_cleared': deleted_usage,
-            'transactions_cleared': deleted_transactions
+            'transactions_cleared': deleted_transactions,
+            'lookups_cleared': deleted_lookups
         })
     except Exception as e:
         db.session.rollback()
+        print(f"RESET FAILED: {e}")
         logger.error(f"Error triggering reset: {e}")
         import traceback
         logger.error(traceback.format_exc())
@@ -455,35 +514,40 @@ def trigger_reset():
             'error': str(e),
             'message': 'Reset failed. Check server logs.'
         }), 500
-@api_bp.route('/check-recent-scan', methods=['GET'])
-def check_recent_scan():
-    """Check if a card was recently scanned (for auto-navigation)"""
+
+@admin_bp.route('/export-students-csv')
+def export_students_csv():
+    """Export all students to CSV"""
     try:
-        from database.models import MundowareStudentLookup
-        from datetime import datetime, timedelta
+        students = Student.query.all()
         
-        # Check if there's a recent lookup (within last 2 seconds)
-        recent_cutoff = datetime.utcnow() - timedelta(seconds=2)
+        # Create CSV in memory
+        output = io.StringIO()
+        writer = csv.writer(output)
         
-        lookup = MundowareStudentLookup.query.filter(
-            MundowareStudentLookup.station_id == config.STATION_ID,
-            MundowareStudentLookup.timestamp >= recent_cutoff
-        ).first()
+        # Header
+        writer.writerow(['Student ID', 'Student Name', 'Card UID', 'Grade', 'Meal Plan', 'Daily Limit', 'Status'])
         
-        if lookup:
-            return jsonify({
-                'success': True,
-                'student_id': lookup.student_id
-            })
-        else:
-            return jsonify({
-                'success': True,
-                'student_id': None
-            })
-    
+        # Data
+        for student in students:
+            data = student.to_dict(decrypt=True)
+            writer.writerow([
+                data['student_id'],
+                data['student_name'],
+                data['card_rfid_uid'],
+                data['grade_level'],
+                data['meal_plan_type'],
+                data['daily_meal_limit'],
+                data['status']
+            ])
+        
+        output.seek(0)
+        return send_file(
+            io.BytesIO(output.getvalue().encode('utf-8')),
+            mimetype='text/csv',
+            as_attachment=True,
+            download_name=f'students_{date.today().isoformat()}.csv'
+        )
     except Exception as e:
-        logger.error(f"Error checking recent scan: {e}")
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
+        logger.error(f"Error exporting CSV: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500

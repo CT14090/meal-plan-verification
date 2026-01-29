@@ -395,9 +395,12 @@ class DatabaseManager:
             student_name = self.em.decrypt(student.student_name)
             
             # Delete existing record for this station
-            MundowareStudentLookup.query.filter_by(
+            deleted = MundowareStudentLookup.query.filter_by(
                 station_id=config.STATION_ID
             ).delete()
+            
+            if deleted > 0:
+                logger.debug(f"Deleted {deleted} old lookup entries before creating new one")
             
             # Create new record
             lookup = MundowareStudentLookup(
@@ -411,11 +414,24 @@ class DatabaseManager:
             db.session.add(lookup)
             db.session.commit()
             
-            logger.info(f"Updated MUNDOWARE lookup for station {config.STATION_ID}")
-            return True
+            # Verify it was created
+            verify = MundowareStudentLookup.query.filter_by(
+                station_id=config.STATION_ID,
+                student_id=student.student_id
+            ).first()
+            
+            if verify:
+                logger.info(f"✅ MUNDOWARE lookup created: {student.student_id} (eligible: {eligible})")
+                return True
+            else:
+                logger.error(f"❌ Failed to verify MUNDOWARE lookup creation")
+                return False
+                
         except Exception as e:
             db.session.rollback()
-            logger.error(f"Error updating MUNDOWARE lookup: {e}")
+            logger.error(f"❌ Error updating MUNDOWARE lookup: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             return False
     
     def clear_mundoware_lookup(self):

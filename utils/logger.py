@@ -33,11 +33,11 @@ def setup_logging():
     for handler in root_logger.handlers[:]:
         root_logger.removeHandler(handler)
     
-    # Console handler (for development)
+    # Console handler (for development) - only show WARNING and above
     console_handler = logging.StreamHandler()
-    console_handler.setLevel(getattr(logging, config.LOG_LEVEL))
+    console_handler.setLevel(logging.WARNING)  # Only show warnings and errors in terminal
     console_formatter = logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        '%(levelname)s - %(message)s'  # Simpler format for console
     )
     console_handler.setFormatter(console_formatter)
     root_logger.addHandler(console_handler)
