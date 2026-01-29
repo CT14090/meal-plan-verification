@@ -1,68 +1,88 @@
-{% extends "base.html" %}
-
-{% block title %}Meal Approved{% endblock %}
-
-{% block content %}
+{% extends "base.html" %} {% block title %}Meal Approved{% endblock %} {% block
+content %}
 <div class="container">
-    <div class="card">
-        <div class="header">
-            <h1>🍽️ Meal Plan Verification</h1>
-            <div class="station">{{ station_name }}</div>
-        </div>
-        
-        <div class="icon" style="font-size: 180px;">✅</div>
-        
-        <div class="status-badge status-success">
-            MEAL APPROVED
-        </div>
-        
-        <div class="message" style="margin-top: 30px;">
-            <strong id="student-name">Student</strong><br>
-            Transaction completed successfully
-        </div>
-        
-        <div class="student-info" style="margin-top: 30px;">
-            <div class="detail">
-                <span>Meals Used Today:</span>
-                <strong id="meals-used">--- / ---</strong>
-            </div>
-            <div class="detail">
-                <span>Remaining Today:</span>
-                <strong id="meals-remaining" style="color: #10b981;">---</strong>
-            </div>
-        </div>
-        
-        <div style="margin-top: 40px;">
-            <a href="/" class="btn btn-success">← Back to Main</a>
-        </div>
+  <div class="card">
+    <div class="header">
+      <h1>🍽️ Meal Plan Verification</h1>
+      <div class="station">{{ station_name }}</div>
     </div>
+
+    <div class="icon" style="font-size: 80px">✅</div>
+
+    <div class="status-badge status-success">MEAL APPROVED</div>
+
+    <div class="message" style="margin-top: 20px">
+      <strong id="student-name">Student</strong><br />
+      Transaction completed successfully
+    </div>
+
+    <div class="student-info" style="margin-top: 20px">
+      <div class="detail">
+        <span>Meals Used Today:</span>
+        <strong id="meals-used">--- / ---</strong>
+      </div>
+      <div class="detail">
+        <span>Remaining Today:</span>
+        <strong id="meals-remaining" style="color: #10b981">---</strong>
+      </div>
+    </div>
+
+    <div style="margin-top: 20px; font-size: 16px; color: #6b7280">
+      Returning in <span id="countdown">2</span> seconds...
+    </div>
+
+    <div style="margin-top: 15px">
+      <a href="/" class="btn btn-success" onclick="clearCountdown()"
+        >← Return Now</a
+      >
+    </div>
+  </div>
 </div>
 
 <script>
-const urlParams = new URLSearchParams(window.location.search);
-const studentId = urlParams.get('student');
+  const urlParams = new URLSearchParams(window.location.search);
+  const studentId = urlParams.get("student");
 
-if (studentId) {
-    fetch('/api/manual-lookup', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ student_id: studentId })
+  if (studentId) {
+    fetch("/api/manual-lookup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ student_id: studentId }),
     })
-    .then(response => response.json())
-    .then(data => {
+      .then((response) => response.json())
+      .then((data) => {
         if (data.success) {
-            document.getElementById('student-name').textContent = data.student.student_name;
-            document.getElementById('meals-used').textContent = 
-                data.eligibility.meals_used + ' / ' + data.student.daily_meal_limit;
-            document.getElementById('meals-remaining').textContent = 
-                data.eligibility.meals_remaining + ' meal(s)';
+          document.getElementById("student-name").textContent =
+            data.student.student_name;
+          document.getElementById("meals-used").textContent =
+            data.eligibility.meals_used + " / " + data.student.daily_meal_limit;
+          document.getElementById("meals-remaining").textContent =
+            data.eligibility.meals_remaining + " meal(s)";
         }
-    });
-}
+      });
+  }
 
-// Auto-redirect after 5 seconds
-setTimeout(() => {
-    window.location.href = '/';
-}, 5000);
+  // Auto-redirect countdown (2 seconds)
+  let timeLeft = 2;
+  const countdownInterval = setInterval(() => {
+    timeLeft--;
+    const countdownEl = document.getElementById("countdown");
+    if (countdownEl) {
+      countdownEl.textContent = timeLeft;
+    }
+
+    if (timeLeft <= 0) {
+      clearInterval(countdownInterval);
+      window.location.href = "/";
+    }
+  }, 1000);
+
+  window.currentCountdown = countdownInterval;
+
+  function clearCountdown() {
+    if (window.currentCountdown) {
+      clearInterval(window.currentCountdown);
+    }
+  }
 </script>
 {% endblock %}

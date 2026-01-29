@@ -7,11 +7,11 @@ content %}
       <div class="station">{{ station_name }}</div>
     </div>
 
-    <div class="icon" style="font-size: 180px">⛔</div>
+    <div class="icon" style="font-size: 80px">⛔</div>
 
     <div class="status-badge status-error">MEAL DENIED</div>
 
-    <div class="message" style="margin-top: 30px">
+    <div class="message" style="margin-top: 20px">
       <strong id="student-name">Student</strong><br />
       <span id="denial-reason" style="color: #ef4444">Transaction denied</span>
     </div>
@@ -19,25 +19,25 @@ content %}
     <div
       class="student-info"
       style="
-        margin-top: 30px;
+        margin-top: 20px;
         background: #fee2e2;
-        padding: 30px;
+        padding: 20px;
         border-radius: 12px;
       "
     >
       <div class="detail">
         <span>Reason:</span>
-        <strong id="reason-text" style="color: #dc2626; font-size: 28px"
+        <strong id="reason-text" style="color: #dc2626; font-size: 20px"
           >---</strong
         >
       </div>
     </div>
 
-    <div style="margin-top: 30px; font-size: 20px; color: #6b7280">
-      Returning to main screen in <span id="countdown">5</span> seconds...
+    <div style="margin-top: 20px; font-size: 16px; color: #6b7280">
+      Returning in <span id="countdown">2</span> seconds...
     </div>
 
-    <div style="margin-top: 20px">
+    <div style="margin-top: 15px">
       <a href="/" class="btn btn-secondary" onclick="clearCountdown()"
         >← Return Now</a
       >
@@ -71,8 +71,8 @@ content %}
       });
   }
 
-  // Auto-redirect countdown (5 seconds)
-  let timeLeft = 5;
+  // Auto-redirect countdown (2 seconds)
+  let timeLeft = 2;
   const countdownInterval = setInterval(() => {
     timeLeft--;
     const countdownEl = document.getElementById("countdown");

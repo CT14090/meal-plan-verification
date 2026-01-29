@@ -10,7 +10,7 @@ import io
 from config.settings import config
 from config.encryption import get_encryption_manager
 from database.db_manager import get_db_manager
-from database.models import db, Student
+from database.models import db, Student, MealTransaction
 from database.sample_data import populate_database, export_student_cards_csv
 from services.scheduler import get_scheduler_service
 from utils.logger import get_logger, log_transaction
@@ -412,63 +412,78 @@ def generate_sample_data():
             'error': str(e)
         }), 500
 
-@admin_bp.route('/export-students-csv')
-def export_students():
-    """Export students to CSV"""
-    try:
-        students = Student.query.all()
-        
-        # Create CSV in memory
-        output = io.StringIO()
-        writer = csv.writer(output)
-        writer.writerow(['Student ID', 'Name', 'Card UID', 'Grade', 'Meal Plan', 'Daily Limit', 'Status'])
-        
-        for student in students:
-            writer.writerow([
-                student.student_id,
-                em.decrypt(student.student_name),
-                em.decrypt(student.card_rfid_uid),
-                student.grade_level,
-                student.meal_plan_type,
-                student.daily_meal_limit,
-                student.status
-            ])
-        
-        output.seek(0)
-        return send_file(
-            io.BytesIO(output.getvalue().encode('utf-8')),
-            mimetype='text/csv',
-            as_attachment=True,
-            download_name=f'students_{date.today()}.csv'
-        )
-    
-    except Exception as e:
-        logger.error(f"Error exporting students: {e}")
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
-
 @admin_bp.route('/trigger-reset', methods=['POST'])
 def trigger_reset():
-    """Manually trigger daily reset"""
+    """Manually trigger daily reset - clears usage AND today's transactions"""
     try:
         logger.info("Manual daily reset triggered from admin panel")
         
-        # Call the reset function directly from db_manager
-        deleted_count = db_manager.reset_daily_usage()
+        from datetime import date, datetime
+        from database.models import DailyMealUsage
         
-        logger.info(f"Manual reset completed. Cleared {deleted_count} usage records.")
+        # 1. Delete ALL daily meal usage records (students get fresh allowances)
+        deleted_usage = DailyMealUsage.query.delete()
+        logger.info(f"Cleared {deleted_usage} usage records - all students now have fresh allowances")
+        
+        # 2. Delete today's transactions (so stats show 0)
+        today = date.today()
+        today_start = datetime.combine(today, datetime.min.time())
+        
+        deleted_transactions = MealTransaction.query.filter(
+            MealTransaction.transaction_timestamp >= today_start
+        ).delete()
+        
+        db.session.commit()
+        logger.info(f"Deleted {deleted_transactions} transaction records from today")
+        
+        total_deleted = deleted_usage + deleted_transactions
         
         return jsonify({
             'success': True,
-            'message': f'Daily reset completed. Cleared {deleted_count} usage records.',
-            'records_cleared': deleted_count
+            'message': f'Daily reset completed. All students have fresh meal allowances.',
+            'records_cleared': total_deleted,
+            'usage_cleared': deleted_usage,
+            'transactions_cleared': deleted_transactions
         })
     except Exception as e:
+        db.session.rollback()
         logger.error(f"Error triggering reset: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return jsonify({
             'success': False,
             'error': str(e),
             'message': 'Reset failed. Check server logs.'
+        }), 500
+@api_bp.route('/check-recent-scan', methods=['GET'])
+def check_recent_scan():
+    """Check if a card was recently scanned (for auto-navigation)"""
+    try:
+        from database.models import MundowareStudentLookup
+        from datetime import datetime, timedelta
+        
+        # Check if there's a recent lookup (within last 2 seconds)
+        recent_cutoff = datetime.utcnow() - timedelta(seconds=2)
+        
+        lookup = MundowareStudentLookup.query.filter(
+            MundowareStudentLookup.station_id == config.STATION_ID,
+            MundowareStudentLookup.timestamp >= recent_cutoff
+        ).first()
+        
+        if lookup:
+            return jsonify({
+                'success': True,
+                'student_id': lookup.student_id
+            })
+        else:
+            return jsonify({
+                'success': True,
+                'student_id': None
+            })
+    
+    except Exception as e:
+        logger.error(f"Error checking recent scan: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
         }), 500

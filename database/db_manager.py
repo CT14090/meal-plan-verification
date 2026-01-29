@@ -31,19 +31,25 @@ class DatabaseManager:
             Student object or None
         """
         try:
-            encrypted_uid = self.em.encrypt(card_uid)
-            student = Student.query.filter_by(card_rfid_uid=encrypted_uid).first()
+            # Get all students and decrypt their card UIDs to compare
+            students = Student.query.all()
             
-            if student:
-                logger.info(f"Student found for RFID: {card_uid[:8]}***")
-            else:
-                logger.warning(f"No student found for RFID: {card_uid[:8]}***")
+            for student in students:
+                try:
+                    decrypted_uid = self.em.decrypt(student.card_rfid_uid)
+                    if decrypted_uid == card_uid:
+                        logger.info(f"Student found for RFID: {card_uid[:8]}***")
+                        return student
+                except:
+                    # Skip students with invalid encrypted UIDs
+                    continue
             
-            return student
+            logger.warning(f"No student found for RFID: {card_uid[:8]}***")
+            return None
         except Exception as e:
             logger.error(f"Error finding student by RFID: {e}")
             return None
-    
+            
     def find_student_by_id(self, student_id):
         """
         Find student by student ID
@@ -309,6 +315,8 @@ class DatabaseManager:
             today = date.today()
             today_start = datetime.combine(today, datetime.min.time())
             
+            logger.info(f"Getting daily stats for {today}")
+            
             # Total transactions today
             total = MealTransaction.query.filter(
                 MealTransaction.transaction_timestamp >= today_start
@@ -316,44 +324,36 @@ class DatabaseManager:
             
             # Approved transactions
             approved = MealTransaction.query.filter(
-                and_(
-                    MealTransaction.transaction_timestamp >= today_start,
-                    MealTransaction.status == config.STATUS_APPROVED
-                )
+                MealTransaction.transaction_timestamp >= today_start,
+                MealTransaction.status == config.STATUS_APPROVED
             ).count()
             
             # Denied transactions
             denied = MealTransaction.query.filter(
-                and_(
-                    MealTransaction.transaction_timestamp >= today_start,
-                    MealTransaction.status == config.STATUS_DENIED
-                )
+                MealTransaction.transaction_timestamp >= today_start,
+                MealTransaction.status == config.STATUS_DENIED
             ).count()
             
-            # By meal type
+            # By meal type (only approved)
             breakfast = MealTransaction.query.filter(
-                and_(
-                    MealTransaction.transaction_timestamp >= today_start,
-                    MealTransaction.meal_type == 'Breakfast',
-                    MealTransaction.status == config.STATUS_APPROVED
-                )
+                MealTransaction.transaction_timestamp >= today_start,
+                MealTransaction.meal_type == 'Breakfast',
+                MealTransaction.status == config.STATUS_APPROVED
             ).count()
             
             lunch = MealTransaction.query.filter(
-                and_(
-                    MealTransaction.transaction_timestamp >= today_start,
-                    MealTransaction.meal_type == 'Lunch',
-                    MealTransaction.status == config.STATUS_APPROVED
-                )
+                MealTransaction.transaction_timestamp >= today_start,
+                MealTransaction.meal_type == 'Lunch',
+                MealTransaction.status == config.STATUS_APPROVED
             ).count()
             
             snack = MealTransaction.query.filter(
-                and_(
-                    MealTransaction.transaction_timestamp >= today_start,
-                    MealTransaction.meal_type == 'Snack',
-                    MealTransaction.status == config.STATUS_APPROVED
-                )
+                MealTransaction.transaction_timestamp >= today_start,
+                MealTransaction.meal_type == 'Snack',
+                MealTransaction.status == config.STATUS_APPROVED
             ).count()
+            
+            logger.info(f"Stats: total={total}, approved={approved}, denied={denied}, breakfast={breakfast}, lunch={lunch}, snack={snack}")
             
             return {
                 'total': total,
@@ -365,6 +365,9 @@ class DatabaseManager:
             }
         except Exception as e:
             logger.error(f"Error getting daily stats: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            # Return zeros instead of failing
             return {
                 'total': 0,
                 'approved': 0,

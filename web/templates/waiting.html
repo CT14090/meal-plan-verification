@@ -1,5 +1,6 @@
-{% extends "base.html" %} {% block title %}Ready to Scan - Meal Plan
-Verification{% endblock %} {% block content %}
+{% extends "base.html" %} 
+{% block title %}Ready to Scan - Meal Plan Verification{% endblock %} 
+{% block content %}
 <div class="container">
   <div class="card">
     <div class="header">
@@ -22,25 +23,17 @@ Verification{% endblock %} {% block content %}
       Waiting for card...
     </div>
 
-    <div style="margin-top: 40px">
+    <div style="margin-top: 30px">
       <a href="/manual" class="btn btn-secondary"> Manual Entry </a>
     </div>
   </div>
 </div>
-{% endblock %} {% block scripts %}
+{% endblock %} 
+
+{% block scripts %}
 <script>
   const statusIcon = document.getElementById("status-icon");
   const statusMessage = document.getElementById("status-message");
-
-  // Listen for card scans
-  // The RFID reader service will POST to /api/scan-card
-  // We'll poll for updates or use WebSocket (simplified here with polling)
-
-  let lastCardCheck = Date.now();
-  let processing = false;
-
-  // This page would typically receive real-time updates via WebSocket
-  // For now, it's the landing page where cashiers start
 
   // Animate the card icon
   function animateWaiting() {
@@ -52,7 +45,25 @@ Verification{% endblock %} {% block content %}
 
   setInterval(animateWaiting, 2000);
 
-  // In production, implement WebSocket or Server-Sent Events
-  // to receive real-time card scan notifications and redirect to student_info.html
+  // Poll for recent card scans
+  let lastCheck = Date.now();
+  
+  async function checkForCardScan() {
+    try {
+      // Check MUNDOWARE lookup table for recent scans
+      const response = await fetch('/api/check-recent-scan');
+      const data = await response.json();
+      
+      if (data.success && data.student_id) {
+        // Card was scanned! Navigate to student info
+        window.location.href = `/student-info?student=${data.student_id}`;
+      }
+    } catch (error) {
+      console.error('Error checking for scans:', error);
+    }
+  }
+  
+  // Check every 500ms for card scans
+  setInterval(checkForCardScan, 500);
 </script>
 {% endblock %}

@@ -39,10 +39,10 @@ block content %}
       <div
         id="eligibility-status"
         class="status-badge"
-        style="margin: 30px 0"
+        style="margin: 15px 0"
       ></div>
 
-      <div id="action-buttons" style="margin-top: 30px"></div>
+      <div id="action-buttons" style="margin-top: 15px"></div>
     </div>
   </div>
 </div>
@@ -74,6 +74,14 @@ block content %}
             "status-badge status-error";
           document.getElementById("eligibility-status").textContent =
             "❌ " + data.message;
+
+          // Log the denial
+          logDenial(id, data.message || "Student not found");
+
+          // Auto-return after showing error
+          setTimeout(() => {
+            window.location.href = "/";
+          }, 3000);
         }
       })
       .catch((error) => {
@@ -82,6 +90,10 @@ block content %}
           "status-badge status-error";
         document.getElementById("eligibility-status").textContent =
           "❌ System Error";
+
+        setTimeout(() => {
+          window.location.href = "/";
+        }, 3000);
       });
   }
 
@@ -107,7 +119,7 @@ block content %}
     const buttonsDiv = document.getElementById("action-buttons");
 
     if (eligibility.eligible) {
-      // ELIGIBLE - Only show APPROVE button (no deny button)
+      // ELIGIBLE - Only show APPROVE button
       statusDiv.className = "status-badge status-success";
       statusDiv.textContent = "✅ ELIGIBLE FOR MEAL";
 
@@ -118,22 +130,25 @@ block content %}
             <a href="/" class="btn btn-secondary">← Back</a>
         `;
     } else {
-      // NOT ELIGIBLE - Show reason, auto-return after 5 seconds
+      // NOT ELIGIBLE - Show reason, log denial, auto-return after 2 seconds
       statusDiv.className = "status-badge status-error";
       statusDiv.textContent = "❌ NOT ELIGIBLE";
 
       buttonsDiv.innerHTML = `
-            <div class="message" style="color: #ef4444; margin-bottom: 20px; font-size: 28px;">
+            <div class="message" style="color: #ef4444; margin-bottom: 15px; font-size: 20px;">
                 <strong>${eligibility.reason}</strong>
             </div>
-            <div style="font-size: 20px; color: #6b7280; margin-bottom: 20px;">
-                Returning to main screen in <span id="countdown">5</span> seconds...
+            <div style="font-size: 16px; color: #6b7280; margin-bottom: 15px;">
+                Returning in <span id="countdown">2</span> seconds...
             </div>
             <a href="/" class="btn btn-secondary" onclick="clearCountdown()">← Return Now</a>
         `;
 
+      // Log the denial to database
+      logDenial(student.student_id, eligibility.reason);
+
       // Auto-redirect countdown
-      let timeLeft = 5;
+      let timeLeft = 2;
       const countdownInterval = setInterval(() => {
         timeLeft--;
         const countdownEl = document.getElementById("countdown");
@@ -147,9 +162,22 @@ block content %}
         }
       }, 1000);
 
-      // Store interval ID globally so we can clear it if user clicks button
       window.currentCountdown = countdownInterval;
     }
+  }
+
+  function logDenial(studentId, reason) {
+    // Call the deny-meal API to log this denial in the database
+    fetch("/api/deny-meal", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        student_id: studentId,
+        reason: reason,
+      }),
+    }).catch((err) => {
+      console.error("Error logging denial:", err);
+    });
   }
 
   function clearCountdown() {
