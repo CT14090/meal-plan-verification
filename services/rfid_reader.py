@@ -78,7 +78,7 @@ class RFIDReaderService:
         logger.info("RFID read loop started")
         last_uid = None
         last_read_time = 0
-        debounce_seconds = 2  # Ignore same card within 2 seconds
+        debounce_seconds = 5  # Ignore same card within 5 seconds
         
         while self.running:
             try:

@@ -330,7 +330,7 @@ def check_recent_scan():
         from datetime import datetime, timedelta
         
         # Check if there's a recent lookup (within last 5 seconds)
-        recent_cutoff = datetime.utcnow() - timedelta(seconds=5)
+        recent_cutoff = datetime.utcnow() - timedelta(seconds=3)
         
         # Debug: check ALL lookups for this station
         all_lookups = MundowareStudentLookup.query.filter(
