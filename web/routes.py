@@ -14,10 +14,12 @@ from database.models import db, Student, MealTransaction
 from database.sample_data import populate_database, export_student_cards_csv
 from services.scheduler import get_scheduler_service
 from utils.logger import get_logger, log_transaction
+from services.google_sheets_sync import get_sheets_service
 
 logger = get_logger(__name__)
 em = get_encryption_manager()
 db_manager = get_db_manager()
+sheets_service = get_sheets_service()
 
 # Create blueprints
 main_bp = Blueprint('main', __name__)
@@ -231,6 +233,9 @@ def approve_meal():
         # Console output for visibility
         print(f"✅ MEAL APPROVED: {student_name} ({student_id}) - {meal_type or 'Unknown'}")
         
+        # Log to Google Sheets
+        sheets_service.log_transaction(student_id, meal_type, config.STATUS_APPROVED)
+        
         # Get updated usage
         updated_eligibility = db_manager.check_eligibility(student)
         
@@ -289,6 +294,9 @@ def deny_meal():
         
         # Console output
         print(f"❌ MEAL DENIED: {student_name} ({student_id}) - {reason}")
+        
+        # Log to Google Sheets
+        sheets_service.log_transaction(student_id, None, config.STATUS_DENIED)
         
         # Clear MUNDOWARE lookup
         db_manager.clear_mundoware_lookup()

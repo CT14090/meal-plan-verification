@@ -53,6 +53,15 @@ class SchedulerService:
             replace_existing=True
         )
         
+
+        # Daily summary job (runs at 2 PM Panama time)
+        self.scheduler.add_job(
+            func=self.daily_summary,
+            trigger=CronTrigger(hour=14, minute=0),
+            id='daily_summary',
+            name='Daily Summary to Google Sheets',
+            replace_existing=True
+        )
         self.scheduler.start()
         logger.info("Scheduler service started")
         self._log_scheduled_jobs()
@@ -162,6 +171,37 @@ class SchedulerService:
         logger.warning("Manual daily reset triggered")
         return self.daily_reset()
     
+
+    
+    def daily_summary(self):
+        """
+        Generate daily summary at 2pm and send to Google Sheets
+        Only counts APPROVED transactions
+        """
+        logger.info("Generating daily summary for Google Sheets...")
+        
+        try:
+            from services.google_sheets_sync import get_sheets_service
+            from datetime import date
+            
+            sheets_service = get_sheets_service()
+            stats = self.db_manager.get_daily_stats()
+            today = date.today().isoformat()
+            
+            # Send summary (only approved counts)
+            sheets_service.log_daily_summary(
+                date=today,
+                breakfast_count=stats['breakfast'],
+                lunch_count=stats['lunch'],
+                snacks_count=stats['snack']
+            )
+            
+            logger.info(f"Daily summary sent: {stats['breakfast']} breakfast, {stats['lunch']} lunch, {stats['snack']} snacks")
+            return True
+        
+        except Exception as e:
+            logger.error(f"Error generating daily summary: {e}")
+            return False
     def _log_scheduled_jobs(self):
         """Log all scheduled jobs for reference"""
         jobs = self.scheduler.get_jobs()

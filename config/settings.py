@@ -107,6 +107,12 @@ class Config:
         'MANUAL_OVERRIDE': 'Manually denied by cashier'
     }
     
+
+    
+    # Google Sheets Integration
+    GOOGLE_SHEETS_ENABLED = os.getenv('GOOGLE_SHEETS_ENABLED', 'False').lower() == 'true'
+    GOOGLE_SHEETS_WEB_APP_URL = os.getenv('GOOGLE_SHEETS_WEB_APP_URL', '')
+    
     def validate(self):
         """Validate critical configuration settings"""
         errors = []
