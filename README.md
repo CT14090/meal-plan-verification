@@ -1,23 +1,67 @@
 # Meal Plan Verification System
 
-Automated cafeteria meal plan verification system using RFID cards, touchscreen displays, and daily usage tracking.
+Automated cafeteria meal plan verification system using RFID cards, touchscreen displays, and daily usage tracking with Google Sheets integration.
 
 ---
 
 ## 🎯 Project Overview
 
-**Purpose:** Eliminate manual student name entry, enforce daily meal limits, and integrate with MUNDOWARE POS system.
+**Purpose:** Eliminate manual student name entry, enforce daily meal limits, and integrate with MUNDOWARE POS system and Google Sheets for data tracking.
 
 **Key Features:**
 
 - ✅ RFID card scanning for instant student identification
 - ✅ Real-time eligibility verification (daily meal limits)
 - ✅ Dual-screen cashier workflow (MUNDOWARE + verification touchscreen)
+- ✅ **Google Sheets integration** for real-time transaction logging and daily summaries
 - ✅ Encrypted student data (names & card UIDs)
-- ✅ Automatic midnight usage reset
+- ✅ Automatic midnight usage reset (Panama time)
 - ✅ Transaction logging and reporting
 - ✅ Manual override options for cashiers
-- ✅ Admin dashboard with analytics
+- ✅ Admin dashboard with real-time analytics
+- ✅ Clean terminal output (only important events)
+
+---
+
+## 📊 NEW: Google Sheets Integration
+
+### Real-Time Data Tracking
+
+The system automatically logs all transactions to Google Sheets:
+
+**Transactions Sheet:**
+
+- Logs every approval and denial immediately
+- Columns: Day, Time, Student ID, Meal Type, Status
+- Time format: 08:15 AM (no seconds)
+
+**Daily Summary Sheet:**
+
+- Generated automatically at 2:00 PM Panama time
+- Only counts APPROVED meals
+- Columns: Date, Breakfast, Lunch, Snacks, Total
+- Provides daily analytics for administration
+
+### Setup Google Sheets Integration
+
+1. **Create Google Sheet** with two tabs: "Transactions" and "Daily Summary"
+
+2. **Add Google Apps Script:**
+   - Go to Extensions → Apps Script
+   - Copy the script from `docs/google_apps_script.js` (provided separately)
+   - Save and deploy as Web App
+   - Set permissions: Execute as "Me", Access: "Anyone"
+
+3. **Configure System:**
+   - Add the Web App URL to `.env`:
+     ```
+     GOOGLE_SHEETS_ENABLED=True
+     GOOGLE_SHEETS_WEB_APP_URL=https://script.google.com/macros/s/.../exec
+     ```
+
+4. **Run Setup Function:**
+   - In Apps Script editor, select `setupSheets` from dropdown
+   - Click Run to initialize sheets with headers
 
 ---
 
@@ -40,6 +84,7 @@ Automated cafeteria meal plan verification system using RFID cards, touchscreen 
 ### Network
 
 - Local network connectivity between cashier stations
+- Internet connection for Google Sheets integration
 - Database server (if using shared MySQL database)
 
 ---
@@ -49,18 +94,26 @@ Automated cafeteria meal plan verification system using RFID cards, touchscreen 
 ### Step 1: Clone or Download Repository
 
 ```bash
-# Clone repository (if using Git)
 git clone https://github.com/your-school/meal-plan-verification.git
 cd meal-plan-verification
-
-# OR download and extract ZIP file
 ```
 
-### Step 2: Install Python Dependencies
+### Step 2: Create Virtual Environment
 
 ```bash
-# Install all required packages
-pip install -r requirements.txt
+# Create virtual environment
+python3 -m venv venv
+
+# Activate it
+source venv/bin/activate  # Mac/Linux
+# OR
+venv\Scripts\activate  # Windows
+```
+
+### Step 3: Install Python Dependencies
+
+```bash
+pip install -r requirements.txt --break-system-packages
 ```
 
 **If you encounter errors:**
@@ -69,24 +122,22 @@ pip install -r requirements.txt
 - Linux: `sudo apt-get install pcscd libpcsclite-dev swig`
 - macOS: `brew install swig`
 
-### Step 3: Generate Encryption Key
+### Step 4: Generate Encryption Key
 
 ```bash
-# Generate encryption key (KEEP THIS SECRET!)
 python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 ```
 
 **Save this key securely!** You'll need it in the next step.
 
-### Step 4: Configure Environment Variables
+### Step 5: Configure Environment Variables
 
 ```bash
 # Copy example environment file
 cp .env.example .env
 
 # Edit .env file with your settings
-# Windows: notepad .env
-# Linux/Mac: nano .env
+nano .env  # or use your preferred editor
 ```
 
 **Required Configuration:**
@@ -97,12 +148,12 @@ DATABASE_TYPE=sqlite
 DATABASE_PATH=meal_plan.db
 
 # CRITICAL: Paste your encryption key here
-ENCRYPTION_KEY=YOUR_GENERATED_KEY_FROM_STEP_3
+ENCRYPTION_KEY=YOUR_GENERATED_KEY_FROM_STEP_4
 
 # Flask settings
 FLASK_SECRET_KEY=your-random-secret-key-here
 FLASK_HOST=0.0.0.0
-FLASK_PORT=5000
+FLASK_PORT=5001
 
 # Station identification
 STATION_ID=Station_1  # Change to Station_2, Station_3 for other cashiers
@@ -113,29 +164,33 @@ RFID_ENABLED=True
 
 # MUNDOWARE Integration (configure after testing)
 MUNDOWARE_ENABLED=False  # Set to True when ready to connect
+
+# Google Sheets Integration
+GOOGLE_SHEETS_ENABLED=True
+GOOGLE_SHEETS_WEB_APP_URL=your-web-app-url-here
+
+# Scheduler (Panama time)
+DAILY_RESET_TIME=00:00  # Midnight
 ```
 
-### Step 5: Initialize Database
+### Step 6: Initialize Database
 
 ```bash
-# Start Python shell
-python
+python << 'EOF'
+from web.app import create_app
+from database.sample_data import populate_database
 
-# Run database initialization
->>> from web.app import create_app
->>> from database.sample_data import populate_database
->>> app = create_app()
->>> with app.app_context():
-...     populate_database(50, clear_existing=False)
->>> exit()
+app = create_app()
+with app.app_context():
+    populate_database(50, clear_existing=False)
+EOF
 ```
 
 This creates 50 sample students for testing.
 
-### Step 6: Test RFID Reader (Optional but Recommended)
+### Step 7: Test RFID Reader (Optional but Recommended)
 
 ```bash
-# Test ACR122U connection
 python services/rfid_reader.py
 
 # You should see:
@@ -145,41 +200,29 @@ python services/rfid_reader.py
 # - Press Ctrl+C to stop
 ```
 
-### Step 7: Start the System
+### Step 8: Start the System
 
 ```bash
-# Start all services
 python main.py
 ```
 
 **You should see:**
 
 ```
-====================================================
-MEAL PLAN VERIFICATION SYSTEM
-====================================================
-
-Station: Station_1
-Database: sqlite
-
-Touchscreen: http://0.0.0.0:5000/
-Admin Panel: http://0.0.0.0:5000/admin
-
-System ready! Press Ctrl+C to stop
-====================================================
+ * Serving Flask app 'web.app'
+ * Debug mode: on
 ```
 
-### Step 8: Access Interfaces
+### Step 9: Access Interfaces
 
 **Touchscreen Interface** (for cashiers):
 
-- Open browser on touchscreen PC
-- Navigate to: `http://localhost:5000/`
+- Open browser: `http://localhost:5001/`
 - **Optional:** Set browser to fullscreen (F11)
 
 **Admin Dashboard**:
 
-- Navigate to: `http://localhost:5000/admin`
+- Navigate to: `http://localhost:5001/admin`
 - View statistics, manage students, export reports
 
 ---
@@ -192,7 +235,7 @@ System ready! Press Ctrl+C to stop
 # .env file for Station 1
 STATION_ID=Station_1
 CASHIER_ID=CASHIER_01
-FLASK_PORT=5000
+FLASK_PORT=5001
 ```
 
 ### Station 2 Configuration
@@ -201,7 +244,7 @@ FLASK_PORT=5000
 # .env file for Station 2
 STATION_ID=Station_2
 CASHIER_ID=CASHIER_02
-FLASK_PORT=5001  # Different port if on same machine
+FLASK_PORT=5002  # Different port if on same machine
 ```
 
 ### Station 3 Configuration
@@ -210,7 +253,7 @@ FLASK_PORT=5001  # Different port if on same machine
 # .env file for Station 3
 STATION_ID=Station_3
 CASHIER_ID=CASHIER_03
-FLASK_PORT=5002
+FLASK_PORT=5003
 ```
 
 ### Shared Database Setup (Recommended for Production)
@@ -274,7 +317,7 @@ MYSQL_DATABASE=meal_plan_db
 
 **Method 2: Admin Interface**
 
-1. Go to `http://localhost:5000/admin`
+1. Go to `http://localhost:5001/admin`
 2. Click "Add Student"
 3. Scan student card to get UID
 4. Enter student details
@@ -283,28 +326,23 @@ MYSQL_DATABASE=meal_plan_db
 **Method 3: Manual Database Entry**
 
 ```python
-python
->>> from web.app import create_app
->>> from database.db_manager import get_db_manager
->>> app = create_app()
->>> with app.app_context():
-...     dm = get_db_manager()
-...     dm.add_student(
-...         student_id='12345',
-...         card_rfid_uid='04A3B2C145',  # Get from RFID scan
-...         student_name='John Smith',
-...         grade_level=10,
-...         meal_plan_type='Premium',
-...         daily_meal_limit=2,
-...         status='Active'
-...     )
-```
+python << 'EOF'
+from web.app import create_app
+from database.db_manager import get_db_manager
 
-### Exporting Student Data
-
-```bash
-# Export all students to CSV
-# Visit: http://localhost:5000/admin/export-students-csv
+app = create_app()
+with app.app_context():
+    dm = get_db_manager()
+    dm.add_student(
+        student_id='12345',
+        card_rfid_uid='04A3B2C145',  # Get from RFID scan
+        student_name='John Smith',
+        grade_level=10,
+        meal_plan_type='Premium',
+        daily_meal_limit=2,
+        status='Active'
+    )
+EOF
 ```
 
 ---
@@ -334,15 +372,6 @@ MUNDOWARE_DATABASE=mundoware_pos
 4. This system writes to `mundoware_student_lookup` table:
    - MUNDOWARE reads student info from this table
    - Auto-fills student ID, name, meal plan type
-
-### Option B: Keyboard Automation (Fallback)
-
-If MUNDOWARE cannot read from shared table, the system can:
-
-- Automatically type student information into MUNDOWARE
-- Requires window focus on MUNDOWARE terminal
-
-Enable in `services/mundoware_sync.py` (code provided but disabled by default)
 
 ---
 
@@ -391,9 +420,11 @@ Enable in `services/mundoware_sync.py` (code provided but disabled by default)
    - System automatically ready
 
 2. **During Meal Service:**
-   - Students scan cards
+   - Students scan cards (remove card after scan!)
+   - System auto-detects scan and shows student info
    - Cashier verifies eligibility on touchscreen
    - Clicks APPROVE or DENY
+   - Data logs to Google Sheets automatically
    - Completes transaction in MUNDOWARE
 
 3. **Manual Overrides:**
@@ -401,48 +432,78 @@ Enable in `services/mundoware_sync.py` (code provided but disabled by default)
    - Type student ID
    - Continue normally
 
-### Midnight Reset
+### Automatic Scheduled Tasks
 
-**Automatic:** System resets all daily meal counts at midnight.
+**Midnight (00:00 Panama Time):**
 
-**Manual Reset** (if needed):
+- Resets all daily meal usage counts
+- Students get fresh daily allowances
+
+**2:00 PM (14:00 Panama Time):**
+
+- Generates daily summary
+- Sends to Google Sheets "Daily Summary" tab
+- Only counts APPROVED meals
+
+**Every Hour:**
+
+- System health check
+- Logs system status
+
+**Weekly (Sunday 2:00 AM):**
+
+- Database cleanup
+- Deletes old transaction logs (older than 30 days)
+- Optimizes database
+
+### Manual Reset
+
+If needed, you can manually trigger reset:
 
 ```bash
 # Via admin dashboard
-http://localhost:5000/admin -> "Trigger Daily Reset" button
-
-# OR via Python
-python
->>> from services.scheduler import get_scheduler_service
->>> scheduler = get_scheduler_service()
->>> scheduler.trigger_reset_now()
+http://localhost:5001/admin → "Reset Daily Meal Counts" button
 ```
 
-### Weekly Maintenance
-
-- **Log Cleanup:** System auto-deletes logs older than 30 days
-- **Database Vacuum:** SQLite databases optimized weekly
-- **Review Reports:** Check admin dashboard for anomalies
+⚠️ **Warning:** This clears all usage counts AND today's transactions!
 
 ---
 
 ## 📊 Reports & Analytics
 
-### Daily Statistics
+### Admin Dashboard
 
-Access via admin dashboard:
+Access via `http://localhost:5001/admin`
 
-- Total meals served today
-- Approved vs denied transactions
-- Breakdown by meal type (breakfast, lunch, snack)
-- Breakdown by meal plan type (basic, premium, unlimited)
+**Real-time Statistics:**
 
-### Transaction Export
+- Total students in system
+- Today's meals served (approved)
+- Today's denials
+- Breakdown by meal type (Breakfast, Lunch, Snack)
 
-```bash
-# Export transactions to CSV
-curl http://localhost:5000/admin/transactions > transactions.csv
-```
+**Features:**
+
+- Auto-refresh every 60 seconds
+- Manual refresh button
+- Export students to CSV
+- Trigger manual reset (for testing)
+
+### Google Sheets Reports
+
+**Transactions Sheet:**
+
+- Every transaction logged in real-time
+- Filter by date, student, meal type, status
+- Create custom pivot tables and charts
+- Export to Excel if needed
+
+**Daily Summary Sheet:**
+
+- One row per day (added at 2pm)
+- Shows approved meal counts only
+- Easy to create trend charts
+- Calculate weekly/monthly totals
 
 ### Log Files
 
@@ -471,6 +532,16 @@ Located in `logs/` directory:
 3. Verify reader in Device Manager (Windows) or `lsusb` (Linux)
 4. Try different USB port
 
+### Card Scans Continuously
+
+**Symptoms:** Terminal shows multiple scans without moving card
+
+**Solutions:**
+
+1. **Remove the card from the reader!** Card must be moved away between scans
+2. Debounce is set to 5 seconds, but card must physically leave detection field
+3. Place card only briefly (1-2 seconds), then remove
+
 ### Database Connection Failed
 
 **Symptoms:** "Error connecting to database"
@@ -481,9 +552,7 @@ Located in `logs/` directory:
 2. MySQL: Verify host/port/credentials
 3. Test connection:
    ```bash
-   python
-   >>> from config.settings import config
-   >>> print(config.SQLALCHEMY_DATABASE_URI)
+   python -c "from config.settings import config; print(config.SQLALCHEMY_DATABASE_URI)"
    ```
 
 ### Touchscreen Not Responsive
@@ -495,26 +564,28 @@ Located in `logs/` directory:
 3. Try different browser (Chrome recommended)
 4. Verify touch drivers installed
 
-### Encryption Key Error
+### Google Sheets Not Updating
 
-**Symptoms:** "Invalid encryption key format"
-
-**Solutions:**
-
-1. Verify key copied correctly from Step 3
-2. No extra spaces or quotes in `.env` file
-3. Regenerate key and update all stations
-
-### Student Card Not Found
+**Symptoms:** Transactions not appearing in Google Sheets
 
 **Solutions:**
 
-1. Verify card UID in database:
-   ```bash
-   python services/rfid_reader.py  # Scan card to get UID
-   ```
-2. Check student exists in database
-3. Use "Manual Entry" as fallback
+1. Check `.env` has correct `GOOGLE_SHEETS_WEB_APP_URL`
+2. Verify `GOOGLE_SHEETS_ENABLED=True`
+3. Test the Web App URL manually (should show error, but confirms it's accessible)
+4. Check terminal for error messages
+5. Verify Apps Script is deployed correctly
+
+### Screen Not Auto-Navigating After Scan
+
+**Symptoms:** Card scans but waiting screen doesn't show student info
+
+**Solutions:**
+
+1. Check browser console (F12) for JavaScript errors
+2. Verify lookup table is being created (check terminal for "📝 Updated MUNDOWARE lookup")
+3. Ensure you're not scanning while on another page
+4. Try manual entry as fallback
 
 ---
 
@@ -535,11 +606,8 @@ Located in `logs/` directory:
 
 1. Stop system: `Ctrl+C` in terminal
 2. Restore from backup (daily backup recommended)
-3. If no backup:
-   ```bash
-   # Rebuild from transaction logs
-   python scripts/rebuild_database.py logs/transactions.log
-   ```
+3. Check Google Sheets for transaction history
+4. Manually recreate daily usage from Google Sheets data
 
 ### Lost Encryption Key
 
@@ -550,6 +618,57 @@ Located in `logs/` directory:
 - Backup key in password manager
 - IT department offline backup
 - Test backup restoration monthly
+
+### Google Sheets Access Lost
+
+**Fallback:**
+
+- System continues working locally
+- All data still saved to local database
+- Admin dashboard still accessible
+- Re-deploy Web App when access restored
+
+---
+
+## 🔍 System Monitoring
+
+### Terminal Output Guide
+
+**Clean Terminal Messages:**
+
+```
+📇 Card Scanned #1: 47C0E33D***
+   API Response: 200
+✅ Student: Thomas Lopez (10855)
+   Eligible: True
+   Meals used: 0/1
+
+📝 Updated MUNDOWARE lookup: 10855 (eligible: True)
+🔍 Recent scan detected: 10855 (timestamp: ...)
+
+✅ MEAL APPROVED: Thomas Lopez (10855) - Lunch
+
+🧹 Cleared MUNDOWARE lookup for Station_1
+```
+
+**What Each Icon Means:**
+
+- 📇 = Card detected by RFID reader
+- 📝 = MUNDOWARE lookup table updated
+- 🔍 = Waiting screen detected the scan
+- ✅ = Meal approved
+- ❌ = Meal denied
+- 🧹 = Lookup table cleared
+- 🔄 = Daily reset triggered
+- 📊 = Daily summary sent to Google Sheets
+
+### Health Check
+
+System runs automatic health check every hour:
+
+- Verifies database connection
+- Logs daily statistics
+- Confirms system is operational
 
 ---
 
@@ -587,10 +706,23 @@ Located in `logs/` directory:
 - ACR122U RFID Reader
 - MIFARE Classic 1K Cards
 - Lenovo ThinkVision Touchscreen
+- Google Sheets API (via Apps Script)
 
 ---
 
 ## 🔄 Version History
+
+**v1.1.0** (January 30, 2026)
+
+- ✅ Added Google Sheets integration
+- ✅ Real-time transaction logging
+- ✅ Automatic 2PM daily summaries
+- ✅ Fixed auto-navigation issues
+- ✅ Improved terminal output (clean, important events only)
+- ✅ Enhanced RFID debouncing (5 seconds)
+- ✅ Fixed approve/deny duplicate logging
+- ✅ Improved reset functionality
+- ✅ Better error handling throughout
 
 **v1.0.0** (January 2026)
 
@@ -603,14 +735,166 @@ Located in `logs/` directory:
 
 ---
 
-## 🚧 Future Enhancements
+## 🚧 Future Enhancements & Next Steps
 
-**Planned Features:**
+### High Priority
 
-- Mobile app for students (check meal status)
-- Email/SMS notifications
-- Real-time multi-station dashboard
-- Facial recognition as RFID backup
-- Parent portal (view student meal usage)
-- Integration with student information system
-- Advanced analytics and reporting
+1. **CSV Student Import Tool**
+   - Bulk import students from spreadsheet
+   - Validation and error checking
+   - Map RFID cards during import
+
+2. **Enhanced Reporting**
+   - Weekly/monthly summary reports
+   - Student usage patterns
+   - Peak time analysis
+   - Export capabilities
+
+3. **Multi-Language Support**
+   - Spanish interface option
+   - Configurable language per station
+
+4. **Mobile App for Students**
+   - Check meal balance
+   - View transaction history
+   - Receive notifications
+
+### Medium Priority
+
+5. **Google Sheets Data Archiving**
+   - Monthly archiving of old data
+   - Keep current sheets clean
+   - Maintain historical records
+
+6. **Advanced Analytics Dashboard**
+   - Real-time graphs and charts
+   - Trend analysis
+   - Predictive analytics for meal planning
+
+7. **Email/SMS Notifications**
+   - Daily summary to administrators
+   - Alert when student runs out of meals
+   - System error notifications
+
+8. **Facial Recognition Backup**
+   - Alternative to RFID when card is lost
+   - Photo capture on first scan
+   - Privacy-compliant implementation
+
+### Low Priority
+
+9. **Parent Portal**
+   - View student meal usage
+   - Add funds to meal plan
+   - Transaction history
+
+10. **Integration with Student Information System**
+    - Sync student data automatically
+    - Update meal plans based on registration
+    - Handle transfers/graduations
+
+11. **Real-time Multi-Station Dashboard**
+    - See activity across all stations
+    - Monitor system health
+    - Coordinate meal service
+
+12. **Advanced MUNDOWARE Integration**
+    - Bidirectional data sync
+    - Automatic transaction completion
+    - Error reconciliation
+
+### Technical Improvements
+
+13. **Automated Testing**
+    - Unit tests for core functions
+    - Integration tests for workflows
+    - Performance testing
+
+14. **Docker Containerization**
+    - Easy deployment
+    - Consistent environments
+    - Simplified updates
+
+15. **Backup & Recovery System**
+    - Automated daily backups
+    - Point-in-time recovery
+    - Disaster recovery plan
+
+16. **Performance Optimization**
+    - Database query optimization
+    - Caching for frequent lookups
+    - Faster card detection
+
+---
+
+## 📚 Additional Documentation
+
+- `docs/google_apps_script.js` - Google Sheets integration script
+- `docs/TROUBLESHOOTING.md` - Detailed troubleshooting guide
+- `docs/API.md` - API endpoint documentation
+- `docs/DATABASE.md` - Database schema and models
+- `setup_guide.md` - Detailed setup instructions
+
+---
+
+## 🎓 Training Resources
+
+### For Cashiers
+
+- Quick reference card (one-page guide)
+- Video tutorial: Basic operations
+- What to do when system is down
+- Manual override procedures
+
+### For Administrators
+
+- Admin dashboard guide
+- Report generation
+- Student management
+- System monitoring
+
+### For IT Staff
+
+- Installation and configuration
+- Troubleshooting guide
+- Database maintenance
+- Security best practices
+
+---
+
+## ⚡ Quick Start Checklist
+
+- [ ] Install Python 3.9+
+- [ ] Create virtual environment
+- [ ] Install dependencies (`pip install -r requirements.txt`)
+- [ ] Generate encryption key
+- [ ] Configure `.env` file
+- [ ] Set up Google Sheets (create sheet, deploy script)
+- [ ] Initialize database with sample data
+- [ ] Test RFID reader
+- [ ] Start system (`python main.py`)
+- [ ] Access touchscreen interface
+- [ ] Test card scan → approve flow
+- [ ] Verify Google Sheets logging
+- [ ] Check admin dashboard
+- [ ] Test manual reset
+- [ ] Review logs
+
+---
+
+## 💡 Tips for Success
+
+1. **Test thoroughly before production** - Use sample data and test all scenarios
+2. **Train cashiers properly** - Hands-on practice is essential
+3. **Have a backup plan** - Paper logs for system outages
+4. **Monitor Google Sheets regularly** - Verify data is being logged correctly
+5. **Keep encryption key secure** - Multiple backups in secure locations
+6. **Regular database backups** - Automated daily backups recommended
+7. **Review transaction logs** - Check for anomalies weekly
+8. **Plan for scale** - Consider MySQL for multiple stations
+9. **Document customizations** - Keep notes on any changes made
+10. **Stay updated** - Check for system updates and improvements
+
+---
+
+**For the latest updates, visit:** [Project Repository URL]
