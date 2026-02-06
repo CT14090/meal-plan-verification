@@ -1,0 +1,610 @@
+{% extends "base.html" %} {% block title %}Student Management{% endblock %} {%
+block styles %}
+<style>
+  body {
+    background: #f3f4f6;
+    overflow-y: auto !important;
+  }
+
+  .container {
+    height: auto;
+    min-height: 100vh;
+    padding: 40px 20px;
+  }
+
+  .management-container {
+    max-width: 1600px;
+    margin: 0 auto;
+  }
+
+  .page-header {
+    background: white;
+    padding: 30px;
+    border-radius: 16px;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+    margin-bottom: 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .search-bar {
+    display: flex;
+    gap: 15px;
+    margin-bottom: 20px;
+  }
+
+  .search-bar input {
+    flex: 1;
+    padding: 12px 20px;
+    font-size: 16px;
+    border: 2px solid #e5e7eb;
+    border-radius: 8px;
+  }
+
+  .students-table {
+    background: white;
+    border-radius: 16px;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+    overflow: hidden;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  thead {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+  }
+
+  th {
+    padding: 15px;
+    text-align: left;
+    font-weight: 600;
+  }
+
+  td {
+    padding: 12px 15px;
+    border-bottom: 1px solid #e5e7eb;
+  }
+
+  tbody tr:hover {
+    background: #f9fafb;
+  }
+
+  .action-btns {
+    display: flex;
+    gap: 8px;
+  }
+
+  .action-btns button {
+    padding: 6px 12px;
+    font-size: 14px;
+    border-radius: 6px;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .btn-edit {
+    background: #3b82f6;
+    color: white;
+  }
+
+  .btn-photo {
+    background: #8b5cf6;
+    color: white;
+  }
+
+  .btn-deactivate {
+    background: #ef4444;
+    color: white;
+  }
+
+  .modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .modal.active {
+    display: flex;
+  }
+
+  .modal-content {
+    background: white;
+    border-radius: 16px;
+    padding: 30px;
+    max-width: 600px;
+    width: 90%;
+    max-height: 80vh;
+    overflow-y: auto;
+  }
+
+  .form-group {
+    margin-bottom: 20px;
+  }
+
+  .form-group label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: #374151;
+  }
+
+  .form-group input,
+  .form-group select {
+    width: 100%;
+    padding: 10px;
+    font-size: 16px;
+    border: 2px solid #e5e7eb;
+    border-radius: 8px;
+  }
+
+  .status-badge {
+    padding: 4px 12px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .status-active {
+    background: #d1fae5;
+    color: #065f46;
+  }
+
+  .status-inactive {
+    background: #fee2e2;
+    color: #991b1b;
+  }
+
+  .photo-preview {
+    width: 100px;
+    height: 100px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 3px solid #667eea;
+  }
+</style>
+{% endblock %} {% block content %}
+<div class="management-container">
+  <div class="page-header">
+    <div>
+      <h1 style="color: #1f2937; margin: 0">👥 Student Management</h1>
+      <p style="color: #6b7280; margin-top: 5px">
+        Manage students, meal plans, and photos
+      </p>
+    </div>
+    <div>
+      <button onclick="openAddModal()" class="btn btn-success">
+        ➕ Add Student
+      </button>
+      <a href="/admin" class="btn btn-secondary">← Dashboard</a>
+    </div>
+  </div>
+
+  <div class="search-bar">
+    <input
+      type="text"
+      id="search-input"
+      placeholder="Search by Student ID..."
+      onkeyup="searchStudents()"
+    />
+    <button onclick="loadStudents()" class="btn btn-secondary">
+      🔄 Refresh
+    </button>
+  </div>
+
+  <div class="students-table">
+    <table>
+      <thead>
+        <tr>
+          <th>Photo</th>
+          <th>Student ID</th>
+          <th>Name</th>
+          <th>Grade</th>
+          <th>Meal Plan</th>
+          <th>Daily Limit</th>
+          <th>Status</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="students-tbody">
+        <tr>
+          <td colspan="8" style="text-align: center; padding: 40px">
+            <div class="loading"></div>
+            <p>Loading students...</p>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div style="text-align: center; margin-top: 20px">
+    <button
+      onclick="loadPage(currentPage - 1)"
+      id="btn-prev"
+      class="btn btn-secondary"
+      disabled
+    >
+      ← Previous
+    </button>
+    <span id="page-info" style="margin: 0 20px; font-weight: 600">Page 1</span>
+    <button
+      onclick="loadPage(currentPage + 1)"
+      id="btn-next"
+      class="btn btn-secondary"
+    >
+      Next →
+    </button>
+  </div>
+</div>
+
+<!-- Add/Edit Student Modal -->
+<div id="student-modal" class="modal">
+  <div class="modal-content">
+    <h2 id="modal-title">Add New Student</h2>
+    <form id="student-form" onsubmit="saveStudent(event)">
+      <div class="form-group">
+        <label>Student ID *</label>
+        <input type="text" id="form-student-id" required />
+      </div>
+
+      <div class="form-group">
+        <label>Card RFID UID *</label>
+        <input
+          type="text"
+          id="form-card-uid"
+          required
+          placeholder="e.g., 04A3B2C145"
+        />
+      </div>
+
+      <div class="form-group">
+        <label>Student Name *</label>
+        <input type="text" id="form-name" required />
+      </div>
+
+      <div class="form-group">
+        <label>Grade Level *</label>
+        <input type="number" id="form-grade" min="9" max="12" required />
+      </div>
+
+      <div class="form-group">
+        <label>Meal Plan Type *</label>
+        <select id="form-meal-plan" required>
+          <option value="">-- Select Plan --</option>
+          <option value="Basic">Basic (Lunch only)</option>
+          <option value="Plus">Plus (Lunch + Snack)</option>
+          <option value="Premium">Premium (Breakfast + Lunch + Snack)</option>
+          <option value="Unlimited">Unlimited</option>
+          <option value="FridayBasic">Friday Basic (Lunch on Fridays)</option>
+          <option value="FridayPlus">
+            Friday Plus (Lunch + Snack on Fridays)
+          </option>
+          <option value="FridayPremium">
+            Friday Premium (All meals on Fridays)
+          </option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label>Status</label>
+        <select id="form-status">
+          <option value="Active">Active</option>
+          <option value="Inactive">Inactive</option>
+        </select>
+      </div>
+
+      <div style="display: flex; gap: 10px; margin-top: 30px">
+        <button type="submit" class="btn btn-success" style="flex: 1">
+          💾 Save
+        </button>
+        <button
+          type="button"
+          onclick="closeModal()"
+          class="btn btn-secondary"
+          style="flex: 1"
+        >
+          Cancel
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Photo Upload Modal -->
+<div id="photo-modal" class="modal">
+  <div class="modal-content">
+    <h2>Upload Student Photo</h2>
+    <p style="color: #6b7280; margin-bottom: 20px">
+      Student ID: <strong id="photo-student-id"></strong>
+    </p>
+
+    <form id="photo-form" onsubmit="uploadPhoto(event)">
+      <div class="form-group">
+        <label>Select Photo (JPG, PNG, GIF)</label>
+        <input type="file" id="photo-file" accept="image/*" required />
+      </div>
+
+      <div
+        id="photo-preview-container"
+        style="text-align: center; margin: 20px 0"
+      ></div>
+
+      <div style="display: flex; gap: 10px; margin-top: 30px">
+        <button type="submit" class="btn btn-success" style="flex: 1">
+          📤 Upload
+        </button>
+        <button
+          type="button"
+          onclick="closePhotoModal()"
+          class="btn btn-secondary"
+          style="flex: 1"
+        >
+          Cancel
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+  let currentPage = 1;
+  let totalPages = 1;
+  let isEditing = false;
+  let editingStudentId = null;
+  let currentPhotoStudentId = null;
+
+  // Load students on page load
+  document.addEventListener("DOMContentLoaded", () => {
+    loadStudents();
+  });
+
+  function loadStudents() {
+    fetch(`/admin/api/students?page=${currentPage}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.success) {
+          displayStudents(data.students);
+          totalPages = data.pages;
+          updatePagination();
+        }
+      })
+      .catch((err) => {
+        console.error("Error loading students:", err);
+        document.getElementById("students-tbody").innerHTML = `
+          <tr><td colspan="8" style="text-align: center; color: #ef4444;">Error loading students</td></tr>
+        `;
+      });
+  }
+
+  function displayStudents(students) {
+    const tbody = document.getElementById("students-tbody");
+
+    if (students.length === 0) {
+      tbody.innerHTML = `
+        <tr><td colspan="8" style="text-align: center; padding: 40px;">No students found</td></tr>
+      `;
+      return;
+    }
+
+    tbody.innerHTML = students
+      .map(
+        (s) => `
+      <tr>
+        <td>
+          ${
+            s.photo_filename
+              ? `<img src="/static/photos/${s.photo_filename}" class="photo-preview" alt="${s.student_name}">`
+              : '<div style="width: 40px; height: 40px; background: #e5e7eb; border-radius: 50%; display: flex; align-items: center; justify-content: center;">👤</div>'
+          }
+        </td>
+        <td><strong>${s.student_id}</strong></td>
+        <td>${s.student_name}</td>
+        <td>${s.grade_level}</td>
+        <td>${s.meal_plan_type}</td>
+        <td>${s.daily_meal_limit}</td>
+        <td>
+          <span class="status-badge status-${s.status.toLowerCase()}">
+            ${s.status}
+          </span>
+        </td>
+        <td>
+          <div class="action-btns">
+            <button class="btn-edit" onclick="editStudent('${s.student_id}')">✏️ Edit</button>
+            <button class="btn-photo" onclick="openPhotoModal('${s.student_id}')">📷 Photo</button>
+            <button class="btn-deactivate" onclick="deactivateStudent('${s.student_id}')">🚫 Deactivate</button>
+          </div>
+        </td>
+      </tr>
+    `,
+      )
+      .join("");
+  }
+
+  function searchStudents() {
+    const search = document.getElementById("search-input").value.trim();
+
+    if (search === "") {
+      loadStudents();
+      return;
+    }
+
+    fetch(`/admin/api/students?search=${encodeURIComponent(search)}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.success) {
+          displayStudents(data.students);
+        }
+      });
+  }
+
+  function loadPage(page) {
+    if (page < 1 || page > totalPages) return;
+    currentPage = page;
+    loadStudents();
+  }
+
+  function updatePagination() {
+    document.getElementById("btn-prev").disabled = currentPage <= 1;
+    document.getElementById("btn-next").disabled = currentPage >= totalPages;
+    document.getElementById("page-info").textContent =
+      `Page ${currentPage} of ${totalPages}`;
+  }
+
+  function openAddModal() {
+    isEditing = false;
+    document.getElementById("modal-title").textContent = "Add New Student";
+    document.getElementById("student-form").reset();
+    document.getElementById("form-student-id").disabled = false;
+    document.getElementById("student-modal").classList.add("active");
+  }
+
+  function editStudent(studentId) {
+    isEditing = true;
+    editingStudentId = studentId;
+
+    fetch(`/admin/api/student/${studentId}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.success) {
+          const s = data.student;
+          document.getElementById("modal-title").textContent = "Edit Student";
+          document.getElementById("form-student-id").value = s.student_id;
+          document.getElementById("form-student-id").disabled = true;
+          document.getElementById("form-card-uid").value = s.card_rfid_uid;
+          document.getElementById("form-name").value = s.student_name;
+          document.getElementById("form-grade").value = s.grade_level;
+          document.getElementById("form-meal-plan").value = s.meal_plan_type;
+          document.getElementById("form-status").value = s.status;
+          document.getElementById("student-modal").classList.add("active");
+        }
+      });
+  }
+
+  function saveStudent(event) {
+    event.preventDefault();
+
+    const studentData = {
+      student_id: document.getElementById("form-student-id").value,
+      card_rfid_uid: document.getElementById("form-card-uid").value,
+      student_name: document.getElementById("form-name").value,
+      grade_level: parseInt(document.getElementById("form-grade").value),
+      meal_plan_type: document.getElementById("form-meal-plan").value,
+      status: document.getElementById("form-status").value,
+    };
+
+    const url = isEditing
+      ? `/admin/api/student/${editingStudentId}`
+      : "/admin/api/student";
+
+    const method = isEditing ? "PUT" : "POST";
+
+    fetch(url, {
+      method: method,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(studentData),
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.success) {
+          alert(data.message);
+          closeModal();
+          loadStudents();
+        } else {
+          alert("Error: " + data.error);
+        }
+      })
+      .catch((err) => {
+        alert("Error saving student: " + err.message);
+      });
+  }
+
+  function deactivateStudent(studentId) {
+    if (!confirm(`Are you sure you want to deactivate student ${studentId}?`)) {
+      return;
+    }
+
+    fetch(`/admin/api/student/${studentId}`, {
+      method: "DELETE",
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.success) {
+          alert(data.message);
+          loadStudents();
+        } else {
+          alert("Error: " + data.error);
+        }
+      });
+  }
+
+  function closeModal() {
+    document.getElementById("student-modal").classList.remove("active");
+  }
+
+  function openPhotoModal(studentId) {
+    currentPhotoStudentId = studentId;
+    document.getElementById("photo-student-id").textContent = studentId;
+    document.getElementById("photo-form").reset();
+    document.getElementById("photo-preview-container").innerHTML = "";
+    document.getElementById("photo-modal").classList.add("active");
+  }
+
+  function closePhotoModal() {
+    document.getElementById("photo-modal").classList.remove("active");
+  }
+
+  // Preview photo before upload
+  document
+    .getElementById("photo-file")
+    .addEventListener("change", function (e) {
+      const file = e.target.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = function (e) {
+          document.getElementById("photo-preview-container").innerHTML = `
+          <img src="${e.target.result}" class="photo-preview" alt="Preview">
+        `;
+        };
+        reader.readAsDataURL(file);
+      }
+    });
+
+  function uploadPhoto(event) {
+    event.preventDefault();
+
+    const formData = new FormData();
+    const fileInput = document.getElementById("photo-file");
+    formData.append("photo", fileInput.files[0]);
+
+    fetch(`/admin/api/student/${currentPhotoStudentId}/photo`, {
+      method: "POST",
+      body: formData,
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.success) {
+          alert(data.message);
+          closePhotoModal();
+          loadStudents();
+        } else {
+          alert("Error: " + data.error);
+        }
+      })
+      .catch((err) => {
+        alert("Error uploading photo: " + err.message);
+      });
+  }
+</script>
+{% endblock %}

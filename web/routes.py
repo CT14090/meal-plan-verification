@@ -1,12 +1,15 @@
 """
 Flask Routes - API endpoints and page routes
 Handles all touchscreen interactions and admin functions
+UPDATED: Meal type selection, photo upload, student CRUD
 """
 
-from flask import Blueprint, render_template, request, jsonify, send_file
+from flask import Blueprint, render_template, request, jsonify, send_file, redirect, url_for
+from werkzeug.utils import secure_filename
 from datetime import datetime, date
 import csv
 import io
+import os
 from config.settings import config
 from config.encryption import get_encryption_manager
 from database.db_manager import get_db_manager
@@ -26,6 +29,11 @@ main_bp = Blueprint('main', __name__)
 api_bp = Blueprint('api', __name__)
 admin_bp = Blueprint('admin', __name__)
 
+# Helper function for photo uploads
+def allowed_file(filename):
+    return '.' in filename and \
+           filename.rsplit('.', 1)[1].lower() in config.ALLOWED_PHOTO_EXTENSIONS
+
 # ==================== MAIN TOUCHSCREEN ROUTES ====================
 
 @main_bp.route('/')
@@ -41,7 +49,7 @@ def manual_entry():
 
 @main_bp.route('/student-info')
 def student_info():
-    """Student info display (for RFID scans and manual entry)"""
+    """Student info display with meal type selection"""
     return render_template('student_info.html')
 
 @main_bp.route('/approved')
@@ -54,13 +62,38 @@ def denied():
     """Meal denied screen"""
     return render_template('denied.html')
 
+@admin_bp.route('/scan-card')
+def scan_card_page():
+    """Card UID scanner for enrollment"""
+    return render_template('scan_card.html')
+
+@api_bp.route('/last-card-scan', methods=['GET'])
+def last_card_scan():
+    """Get the last scanned card UID"""
+    try:
+        # Check if there's a recent scan with the actual card UID
+        # We'll store this in a simple cache or session
+        from flask import session
+        card_uid = session.get('last_scanned_card_uid')
+        
+        if card_uid:
+            return jsonify({
+                'success': True,
+                'card_uid': card_uid
+            })
+        else:
+            return jsonify({
+                'success': True,
+                'card_uid': None
+            })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 # ==================== API ENDPOINTS ====================
 
 @api_bp.route('/scan-card', methods=['POST'])
 def scan_card():
-    """
-    Handle card scan from RFID reader
-    """
+    """Handle card scan from RFID reader"""
     try:
         data = request.get_json()
         card_uid = data.get('card_uid', '').strip().upper()
@@ -84,20 +117,27 @@ def scan_card():
                 'message': config.DENIAL_REASONS['CARD_NOT_FOUND']
             }), 404
         
-        # Check eligibility
-        eligibility = db_manager.check_eligibility(student)
+        # Get allowed meal types for this student
+        allowed_meal_types = config.MEAL_PLAN_ALLOWED_TYPES.get(student.meal_plan_type, [])
+        
+        # Check eligibility for each meal type
+        eligibility_by_type = {}
+        for meal_type in config.MEAL_TYPES:
+            eligibility_by_type[meal_type] = db_manager.check_eligibility(student, meal_type)
         
         # Decrypt student data for display
         student_data = student.to_dict(decrypt=True)
         
-        # Update MUNDOWARE lookup table
-        db_manager.update_mundoware_lookup(student, eligibility['eligible'])
-        print(f"📝 Updated MUNDOWARE lookup: {student_data['student_id']} (eligible: {eligibility['eligible']})")
+        # Update MUNDOWARE lookup (use general eligibility - eligible if ANY meal type available)
+        any_eligible = any(e['eligible'] for e in eligibility_by_type.values())
+        db_manager.update_mundoware_lookup(student, any_eligible)
+        print(f"📝 Updated MUNDOWARE lookup: {student_data['student_id']} (eligible: {any_eligible})")
         
         return jsonify({
             'success': True,
             'student': student_data,
-            'eligibility': eligibility
+            'allowed_meal_types': allowed_meal_types,
+            'eligibility_by_type': eligibility_by_type
         })
     
     except Exception as e:
@@ -110,9 +150,7 @@ def scan_card():
 
 @api_bp.route('/manual-lookup', methods=['POST'])
 def manual_lookup():
-    """
-    Manual student lookup by ID
-    """
+    """Manual student lookup by ID"""
     try:
         data = request.get_json()
         student_id = data.get('student_id', '').strip()
@@ -135,19 +173,26 @@ def manual_lookup():
                 'message': 'Student ID not found'
             }), 404
         
-        # Check eligibility
-        eligibility = db_manager.check_eligibility(student)
+        # Get allowed meal types
+        allowed_meal_types = config.MEAL_PLAN_ALLOWED_TYPES.get(student.meal_plan_type, [])
+        
+        # Check eligibility for each meal type
+        eligibility_by_type = {}
+        for meal_type in config.MEAL_TYPES:
+            eligibility_by_type[meal_type] = db_manager.check_eligibility(student, meal_type)
         
         # Decrypt student data
         student_data = student.to_dict(decrypt=True)
         
         # Update MUNDOWARE lookup
-        db_manager.update_mundoware_lookup(student, eligibility['eligible'])
+        any_eligible = any(e['eligible'] for e in eligibility_by_type.values())
+        db_manager.update_mundoware_lookup(student, any_eligible)
         
         return jsonify({
             'success': True,
             'student': student_data,
-            'eligibility': eligibility
+            'allowed_meal_types': allowed_meal_types,
+            'eligibility_by_type': eligibility_by_type
         })
     
     except Exception as e:
@@ -160,18 +205,16 @@ def manual_lookup():
 
 @api_bp.route('/approve-meal', methods=['POST'])
 def approve_meal():
-    """
-    Approve meal transaction
-    """
+    """Approve meal transaction with specific meal type"""
     try:
         data = request.get_json()
         student_id = data.get('student_id')
         meal_type = data.get('meal_type')
         
-        if not student_id:
+        if not student_id or not meal_type:
             return jsonify({
                 'success': False,
-                'error': 'No student ID provided'
+                'error': 'Missing student ID or meal type'
             }), 400
         
         # Get student
@@ -185,10 +228,10 @@ def approve_meal():
         # Decrypt student name for logging
         student_name = em.decrypt(student.student_name)
         
-        # Double-check eligibility
-        eligibility = db_manager.check_eligibility(student)
+        # Double-check eligibility for this specific meal type
+        eligibility = db_manager.check_eligibility(student, meal_type)
         if not eligibility['eligible']:
-            logger.warning(f"Approval attempted for ineligible student: {student_id}")
+            logger.warning(f"Approval attempted for ineligible student: {student_id} - {meal_type}")
             
             # Log denied transaction
             db_manager.log_transaction(
@@ -206,8 +249,8 @@ def approve_meal():
                 'message': eligibility['reason']
             }), 403
         
-        # Increment meal usage
-        success = db_manager.increment_meal_usage(student_id)
+        # Increment meal usage for this specific meal type
+        success = db_manager.increment_meal_usage(student_id, meal_type)
         
         if not success:
             logger.error(f"Failed to increment meal usage for {student_id}")
@@ -226,18 +269,18 @@ def approve_meal():
         )
         
         # Log to transaction file
-        log_transaction(student_id, student_name, meal_type or 'Unknown', 'Approved')
+        log_transaction(student_id, student_name, meal_type, 'Approved')
         
         logger.info(f"Meal approved: {student_id} - {meal_type}")
         
         # Console output for visibility
-        print(f"✅ MEAL APPROVED: {student_name} ({student_id}) - {meal_type or 'Unknown'}")
+        print(f"✅ MEAL APPROVED: {student_name} ({student_id}) - {meal_type}")
         
         # Log to Google Sheets
         sheets_service.log_transaction(student_id, meal_type, config.STATUS_APPROVED)
         
-        # Get updated usage
-        updated_eligibility = db_manager.check_eligibility(student)
+        # Get updated eligibility
+        updated_eligibility = db_manager.check_eligibility(student, meal_type)
         
         return jsonify({
             'success': True,
@@ -255,12 +298,11 @@ def approve_meal():
 
 @api_bp.route('/deny-meal', methods=['POST'])
 def deny_meal():
-    """
-    Deny meal transaction (manual override by cashier)
-    """
+    """Deny meal transaction"""
     try:
         data = request.get_json()
         student_id = data.get('student_id')
+        meal_type = data.get('meal_type')
         reason = data.get('reason', config.DENIAL_REASONS['MANUAL_OVERRIDE'])
         
         if not student_id:
@@ -284,19 +326,19 @@ def deny_meal():
             student_id=student_id,
             student_name=student_name,
             meal_plan_type=student.meal_plan_type,
-            meal_type=None,
+            meal_type=meal_type,
             status=config.STATUS_DENIED,
             denied_reason=reason
         )
         
-        log_transaction(student_id, student_name, 'N/A', 'Denied', reason)
+        log_transaction(student_id, student_name, meal_type or 'N/A', 'Denied', reason)
         logger.info(f"Meal denied: {student_id} - {reason}")
         
         # Console output
         print(f"❌ MEAL DENIED: {student_name} ({student_id}) - {reason}")
         
         # Log to Google Sheets
-        sheets_service.log_transaction(student_id, None, config.STATUS_DENIED)
+        sheets_service.log_transaction(student_id, meal_type, config.STATUS_DENIED)
         
         # Clear MUNDOWARE lookup
         db_manager.clear_mundoware_lookup()
@@ -332,18 +374,12 @@ def get_stats():
 
 @api_bp.route('/check-recent-scan', methods=['GET'])
 def check_recent_scan():
-    """Check if a card was recently scanned (for auto-navigation)"""
+    """Check if a card was recently scanned"""
     try:
         from database.models import MundowareStudentLookup
         from datetime import datetime, timedelta
         
-        # Check if there's a recent lookup (within last 5 seconds)
         recent_cutoff = datetime.utcnow() - timedelta(seconds=3)
-        
-        # Debug: check ALL lookups for this station
-        all_lookups = MundowareStudentLookup.query.filter(
-            MundowareStudentLookup.station_id == config.STATION_ID
-        ).all()
         
         lookup = MundowareStudentLookup.query.filter(
             MundowareStudentLookup.station_id == config.STATION_ID,
@@ -351,19 +387,13 @@ def check_recent_scan():
         ).order_by(MundowareStudentLookup.timestamp.desc()).first()
         
         if lookup:
-            print(f"🔍 Recent scan detected: {lookup.student_id} (timestamp: {lookup.timestamp})")
-            logger.info(f"Recent scan detected for navigation: {lookup.student_id}")
+            print(f"🔍 Recent scan detected: {lookup.student_id}")
             return jsonify({
                 'success': True,
                 'student_id': lookup.student_id,
                 'timestamp': lookup.timestamp.isoformat()
             })
         else:
-            # Only log if there are lookups but none are recent
-            if all_lookups:
-                oldest = all_lookups[0]
-                age = (datetime.utcnow() - oldest.timestamp).total_seconds()
-                print(f"🔍 Lookup exists but too old: {oldest.student_id} ({age:.1f}s ago)")
             return jsonify({
                 'success': True,
                 'student_id': None
@@ -371,7 +401,6 @@ def check_recent_scan():
     
     except Exception as e:
         logger.error(f"Error checking recent scan: {e}")
-        print(f"❌ Error in check-recent-scan: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -379,14 +408,13 @@ def check_recent_scan():
 
 @api_bp.route('/clear-lookup', methods=['POST'])
 def clear_lookup():
-    """Clear the MUNDOWARE lookup table for this station"""
+    """Clear the MUNDOWARE lookup table"""
     try:
         db_manager.clear_mundoware_lookup()
         print(f"🧹 Cleared MUNDOWARE lookup for {config.STATION_ID}")
         return jsonify({'success': True})
     except Exception as e:
         logger.error(f"Error clearing lookup: {e}")
-        print(f"❌ Error clearing lookup: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 # ==================== ADMIN ROUTES ====================
@@ -402,26 +430,170 @@ def dashboard():
                           student_count=student_count)
 
 @admin_bp.route('/students')
+def students_page():
+    """Student management page"""
+    return render_template('admin_students.html')
+
+@admin_bp.route('/api/students', methods=['GET'])
 def list_students():
-    """List all students (paginated)"""
-    page = request.args.get('page', 1, type=int)
-    per_page = 20
-    
-    students = Student.query.paginate(page=page, per_page=per_page, error_out=False)
-    
-    # Decrypt for display
-    students_data = []
-    for student in students.items:
-        data = student.to_dict(decrypt=True)
-        students_data.append(data)
-    
-    return jsonify({
-        'success': True,
-        'students': students_data,
-        'total': students.total,
-        'pages': students.pages,
-        'current_page': page
-    })
+    """API: List all students"""
+    try:
+        page = request.args.get('page', 1, type=int)
+        per_page = 50
+        search = request.args.get('search', '').strip()
+        
+        query = Student.query
+        
+        # Search by student ID (exact match since encrypted names can't be searched)
+        if search:
+            query = query.filter(Student.student_id.like(f'%{search}%'))
+        
+        students = query.order_by(Student.student_id).paginate(page=page, per_page=per_page, error_out=False)
+        
+        students_data = []
+        for student in students.items:
+            data = student.to_dict(decrypt=True)
+            students_data.append(data)
+        
+        return jsonify({
+            'success': True,
+            'students': students_data,
+            'total': students.total,
+            'pages': students.pages,
+            'current_page': page
+        })
+    except Exception as e:
+        logger.error(f"Error listing students: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@admin_bp.route('/api/student/<student_id>', methods=['GET'])
+def get_student(student_id):
+    """API: Get single student details"""
+    try:
+        student = db_manager.find_student_by_id(student_id)
+        if not student:
+            return jsonify({'success': False, 'error': 'Student not found'}), 404
+        
+        student_data = student.to_dict(decrypt=True)
+        return jsonify({'success': True, 'student': student_data})
+    except Exception as e:
+        logger.error(f"Error getting student: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@admin_bp.route('/api/student/<student_id>', methods=['PUT'])
+def update_student(student_id):
+    """API: Update student information"""
+    try:
+        data = request.get_json()
+        
+        # Prepare update data
+        update_data = {}
+        if 'student_name' in data:
+            update_data['student_name'] = data['student_name']
+        if 'card_rfid_uid' in data:
+            update_data['card_rfid_uid'] = data['card_rfid_uid']
+        if 'grade_level' in data:
+            update_data['grade_level'] = int(data['grade_level'])
+        if 'meal_plan_type' in data:
+            update_data['meal_plan_type'] = data['meal_plan_type']
+            # Update daily limit based on meal plan
+            update_data['daily_meal_limit'] = config.MEAL_PLAN_TYPES.get(data['meal_plan_type'], 1)
+        if 'status' in data:
+            update_data['status'] = data['status']
+        
+        student = db_manager.update_student(student_id, **update_data)
+        
+        if student:
+            return jsonify({
+                'success': True,
+                'message': 'Student updated successfully',
+                'student': student.to_dict(decrypt=True)
+            })
+        else:
+            return jsonify({'success': False, 'error': 'Update failed'}), 500
+    except Exception as e:
+        logger.error(f"Error updating student: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@admin_bp.route('/api/student/<student_id>', methods=['DELETE'])
+def delete_student(student_id):
+    """API: Deactivate student"""
+    try:
+        success = db_manager.delete_student(student_id)
+        if success:
+            return jsonify({'success': True, 'message': 'Student deactivated'})
+        else:
+            return jsonify({'success': False, 'error': 'Delete failed'}), 500
+    except Exception as e:
+        logger.error(f"Error deleting student: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@admin_bp.route('/api/student', methods=['POST'])
+def add_student():
+    """API: Add new student"""
+    try:
+        data = request.get_json()
+        
+        student = db_manager.add_student(
+            student_id=data['student_id'],
+            card_rfid_uid=data['card_rfid_uid'],
+            student_name=data['student_name'],
+            grade_level=int(data['grade_level']),
+            meal_plan_type=data['meal_plan_type'],
+            daily_meal_limit=config.MEAL_PLAN_TYPES.get(data['meal_plan_type'], 1),
+            status=data.get('status', 'Active')
+        )
+        
+        if student:
+            return jsonify({
+                'success': True,
+                'message': 'Student added successfully',
+                'student': student.to_dict(decrypt=True)
+            })
+        else:
+            return jsonify({'success': False, 'error': 'Add failed'}), 500
+    except Exception as e:
+        logger.error(f"Error adding student: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@admin_bp.route('/api/student/<student_id>/photo', methods=['POST'])
+def upload_student_photo(student_id):
+    """API: Upload student photo"""
+    try:
+        if 'photo' not in request.files:
+            return jsonify({'success': False, 'error': 'No photo file'}), 400
+        
+        file = request.files['photo']
+        if file.filename == '':
+            return jsonify({'success': False, 'error': 'No file selected'}), 400
+        
+        if file and allowed_file(file.filename):
+            # Use student_id as filename
+            extension = file.filename.rsplit('.', 1)[1].lower()
+            filename = f"{student_id}.{extension}"
+            filepath = os.path.join(config.PHOTO_UPLOAD_FOLDER, filename)
+            
+            # Create directory if it doesn't exist
+            os.makedirs(config.PHOTO_UPLOAD_FOLDER, exist_ok=True)
+            
+            file.save(filepath)
+            
+            # Update student record
+            student = db_manager.update_student(student_id, photo_filename=filename)
+            
+            if student:
+                return jsonify({
+                    'success': True,
+                    'message': 'Photo uploaded successfully',
+                    'photo_filename': filename
+                })
+            else:
+                return jsonify({'success': False, 'error': 'Failed to update student'}), 500
+        else:
+            return jsonify({'success': False, 'error': 'Invalid file type'}), 400
+    except Exception as e:
+        logger.error(f"Error uploading photo: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @admin_bp.route('/transactions')
 def list_transactions():
@@ -459,69 +631,49 @@ def generate_sample_data():
 
 @admin_bp.route('/trigger-reset', methods=['POST'])
 def trigger_reset():
-    """Manually trigger daily reset - clears usage AND today's transactions"""
+    """Manually trigger daily reset"""
     try:
-        reset_line = "=" * 60
-        print("")
-        print(reset_line)
+        print("\n" + "="*60)
         print("DAILY RESET STARTED")
-        print(reset_line)
+        print("="*60)
         
         logger.info("Manual daily reset triggered from admin panel")
         
         from datetime import date, datetime
         from database.models import DailyMealUsage, MundowareStudentLookup
         
-        # 1. Delete ALL daily meal usage records
+        # Delete ALL daily meal usage records
         deleted_usage = DailyMealUsage.query.delete()
         print(f"Cleared {deleted_usage} daily usage records")
-        logger.info(f"Cleared {deleted_usage} usage records")
         
-        # 2. Delete today's transactions
+        # Delete today's transactions
         today = date.today()
         today_start = datetime.combine(today, datetime.min.time())
-        
         deleted_transactions = MealTransaction.query.filter(
             MealTransaction.transaction_timestamp >= today_start
         ).delete()
         print(f"Deleted {deleted_transactions} transaction records")
         
-        # 3. Clear ALL MUNDOWARE lookup entries
+        # Clear MUNDOWARE lookups
         deleted_lookups = MundowareStudentLookup.query.delete()
         print(f"Cleared {deleted_lookups} MUNDOWARE lookup entries")
         
-        # Commit all changes
         db.session.commit()
-        print("Database committed successfully")
-        
-        logger.info(f"Reset complete: {deleted_usage} usage, {deleted_transactions} transactions, {deleted_lookups} lookups")
-        
-        total_deleted = deleted_usage + deleted_transactions + deleted_lookups
-        
-        print(reset_line)
-        print("DAILY RESET COMPLETE - Ready for new scans")
-        print(reset_line)
-        print("")
+        print("="*60)
+        print("DAILY RESET COMPLETE")
+        print("="*60 + "\n")
         
         return jsonify({
             'success': True,
-            'message': 'Daily reset completed. All students have fresh meal allowances.',
-            'records_cleared': total_deleted,
+            'message': 'Daily reset completed',
             'usage_cleared': deleted_usage,
             'transactions_cleared': deleted_transactions,
             'lookups_cleared': deleted_lookups
         })
     except Exception as e:
         db.session.rollback()
-        print(f"RESET FAILED: {e}")
         logger.error(f"Error triggering reset: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
-        return jsonify({
-            'success': False,
-            'error': str(e),
-            'message': 'Reset failed. Check server logs.'
-        }), 500
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @admin_bp.route('/export-students-csv')
 def export_students_csv():
@@ -529,14 +681,11 @@ def export_students_csv():
     try:
         students = Student.query.all()
         
-        # Create CSV in memory
         output = io.StringIO()
         writer = csv.writer(output)
         
-        # Header
-        writer.writerow(['Student ID', 'Student Name', 'Card UID', 'Grade', 'Meal Plan', 'Daily Limit', 'Status'])
+        writer.writerow(['Student ID', 'Student Name', 'Card UID', 'Grade', 'Meal Plan', 'Daily Limit', 'Status', 'Photo'])
         
-        # Data
         for student in students:
             data = student.to_dict(decrypt=True)
             writer.writerow([
@@ -546,7 +695,8 @@ def export_students_csv():
                 data['grade_level'],
                 data['meal_plan_type'],
                 data['daily_meal_limit'],
-                data['status']
+                data['status'],
+                data.get('photo_filename', '')
             ])
         
         output.seek(0)

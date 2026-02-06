@@ -1,6 +1,6 @@
 """
 Database Manager - High-level database operations
-Provides business logic layer on top of SQLAlchemy models
+UPDATED: Auto meal type detection based on time
 """
 
 from datetime import date, datetime
@@ -18,22 +18,9 @@ class DatabaseManager:
     def __init__(self):
         self.em = get_encryption_manager()
     
-    # ==================== STUDENT OPERATIONS ====================
-    
     def find_student_by_rfid(self, card_uid):
-        """
-        Find student by RFID card UID
-        
-        Args:
-            card_uid: RFID card UID (plaintext)
-        
-        Returns:
-            Student object or None
-        """
         try:
-            # Get all students and decrypt their card UIDs to compare
             students = Student.query.all()
-            
             for student in students:
                 try:
                     decrypted_uid = self.em.decrypt(student.card_rfid_uid)
@@ -41,9 +28,7 @@ class DatabaseManager:
                         logger.info(f"Student found for RFID: {card_uid[:8]}***")
                         return student
                 except:
-                    # Skip students with invalid encrypted UIDs
                     continue
-            
             logger.warning(f"No student found for RFID: {card_uid[:8]}***")
             return None
         except Exception as e:
@@ -51,15 +36,6 @@ class DatabaseManager:
             return None
             
     def find_student_by_id(self, student_id):
-        """
-        Find student by student ID
-        
-        Args:
-            student_id: Student ID (plaintext)
-        
-        Returns:
-            Student object or None
-        """
         try:
             student = Student.query.filter_by(student_id=student_id).first()
             if student:
@@ -72,7 +48,6 @@ class DatabaseManager:
             return None
     
     def get_all_students(self, active_only=True):
-        """Get all students"""
         try:
             if active_only:
                 students = Student.query.filter_by(status='Active').all()
@@ -84,16 +59,7 @@ class DatabaseManager:
             return []
     
     def add_student(self, student_id, card_rfid_uid, student_name, grade_level,
-                   meal_plan_type, daily_meal_limit, status='Active', photo_url=None):
-        """
-        Add new student with encryption
-        
-        Args:
-            All student fields (plaintext)
-        
-        Returns:
-            Student object if successful, None otherwise
-        """
+                   meal_plan_type, daily_meal_limit, status='Active', photo_filename=None):
         try:
             student = Student.create_encrypted(
                 student_id=student_id,
@@ -103,12 +69,10 @@ class DatabaseManager:
                 meal_plan_type=meal_plan_type,
                 daily_meal_limit=daily_meal_limit,
                 status=status,
-                photo_url=photo_url
+                photo_filename=photo_filename
             )
-            
             db.session.add(student)
             db.session.commit()
-            
             logger.info(f"Student added: {student_id}")
             return student
         except Exception as e:
@@ -116,73 +80,169 @@ class DatabaseManager:
             logger.error(f"Error adding student: {e}")
             return None
     
-    # ==================== DAILY USAGE OPERATIONS ====================
+    def update_student(self, student_id, **kwargs):
+        try:
+            student = Student.query.filter_by(student_id=student_id).first()
+            if not student:
+                logger.warning(f"Cannot update - student not found: {student_id}")
+                return None
+            
+            if 'card_rfid_uid' in kwargs:
+                student.card_rfid_uid = self.em.encrypt(kwargs['card_rfid_uid'])
+            if 'student_name' in kwargs:
+                student.student_name = self.em.encrypt(kwargs['student_name'])
+            
+            for field in ['grade_level', 'meal_plan_type', 'daily_meal_limit', 'status', 'photo_filename']:
+                if field in kwargs:
+                    setattr(student, field, kwargs[field])
+            
+            student.updated_at = datetime.utcnow()
+            db.session.commit()
+            logger.info(f"Student updated: {student_id}")
+            return student
+        except Exception as e:
+            db.session.rollback()
+            logger.error(f"Error updating student: {e}")
+            return None
+    
+    def delete_student(self, student_id):
+        try:
+            student = Student.query.filter_by(student_id=student_id).first()
+            if not student:
+                return False
+            student.status = 'Inactive'
+            db.session.commit()
+            logger.info(f"Student deactivated: {student_id}")
+            return True
+        except Exception as e:
+            db.session.rollback()
+            logger.error(f"Error deactivating student: {e}")
+            return False
     
     def get_today_usage(self, student_id):
-        """
-        Get today's meal usage for a student
-        Creates new record if doesn't exist
-        
-        Args:
-            student_id: Student ID
-        
-        Returns:
-            DailyMealUsage object
-        """
         try:
             today = date.today()
-            usage = DailyMealUsage.query.filter_by(
-                student_id=student_id,
-                date=today
-            ).first()
-            
+            usage = DailyMealUsage.query.filter_by(student_id=student_id, date=today).first()
             if not usage:
-                # Create new usage record for today
                 usage = DailyMealUsage(
                     student_id=student_id,
                     date=today,
-                    meals_used_today=0
+                    meals_used_today=0,
+                    breakfast_used=0,
+                    lunch_used=0,
+                    snack_used=0
                 )
                 db.session.add(usage)
                 db.session.commit()
                 logger.info(f"Created new daily usage record for {student_id}")
-            
             return usage
         except Exception as e:
             logger.error(f"Error getting today's usage: {e}")
             return None
     
-    def check_eligibility(self, student):
-        """
-        Check if student is eligible for a meal
+    def auto_detect_meal_type(self):
+        """Auto-detect meal type based on current time"""
+        current_hour = datetime.now().hour
         
-        Args:
-            student: Student object
-        
-        Returns:
-            dict with eligibility status and details
-        """
+        # Adjust these times for your school schedule:
+        if 6 <= current_hour < 10:
+            return 'Breakfast'
+        elif 10 <= current_hour < 14:
+            return 'Lunch'
+        elif 14 <= current_hour < 17:
+            return 'Snack'
+        else:
+            return None
+    
+    def check_eligibility(self, student, meal_type=None):
         try:
-            # Check if student is active
+            # AUTO-DETECT meal type if not provided
+            if meal_type is None:
+                meal_type = self.auto_detect_meal_type()
+                if meal_type is None:
+                    return {
+                        'eligible': False,
+                        'reason': 'No meals served at this time',
+                        'meals_used': 0,
+                        'meals_remaining': 0,
+                        'meal_type_status': {},
+                        'detected_meal_type': None
+                    }
+            
             if student.status != 'Active':
                 return {
                     'eligible': False,
                     'reason': config.DENIAL_REASONS['INACTIVE'],
                     'meals_used': 0,
-                    'meals_remaining': 0
+                    'meals_remaining': 0,
+                    'meal_type_status': {},
+                    'detected_meal_type': meal_type
                 }
             
-            # Get today's usage
+            # Friday logic
+            today_weekday = date.today().weekday()
+            is_friday = (today_weekday == 4)
+            is_friday_plan = student.meal_plan_type.startswith('Friday')
+            
+            if is_friday_plan and not is_friday:
+                return {
+                    'eligible': False,
+                    'reason': config.DENIAL_REASONS['NOT_FRIDAY'],
+                    'meals_used': 0,
+                    'meals_remaining': 0,
+                    'meal_type_status': {},
+                    'detected_meal_type': meal_type
+                }
+            
+            if not is_friday_plan and is_friday:
+                return {
+                    'eligible': False,
+                    'reason': config.DENIAL_REASONS['NO_FRIDAY_PLAN'],
+                    'meals_used': 0,
+                    'meals_remaining': 0,
+                    'meal_type_status': {},
+                    'detected_meal_type': meal_type
+                }
+            
+            # Check meal type allowed
+            allowed_types = config.MEAL_PLAN_ALLOWED_TYPES.get(student.meal_plan_type, [])
+            if meal_type not in allowed_types:
+                return {
+                    'eligible': False,
+                    'reason': config.DENIAL_REASONS['MEAL_TYPE_NOT_ALLOWED'],
+                    'meals_used': 0,
+                    'meals_remaining': 0,
+                    'meal_type_status': {},
+                    'detected_meal_type': meal_type
+                }
+            
             usage = self.get_today_usage(student.student_id)
             if not usage:
                 return {
                     'eligible': False,
                     'reason': 'Error checking usage',
                     'meals_used': 0,
-                    'meals_remaining': 0
+                    'meals_remaining': 0,
+                    'meal_type_status': {},
+                    'detected_meal_type': meal_type
                 }
             
-            # Check if under daily limit
+            # Check if meal type already used
+            if not usage.has_meal_type_available(meal_type):
+                return {
+                    'eligible': False,
+                    'reason': config.DENIAL_REASONS['MEAL_TYPE_ALREADY_USED'],
+                    'meals_used': usage.meals_used_today,
+                    'meals_remaining': 0,
+                    'meal_type_status': {
+                        'breakfast_used': usage.breakfast_used,
+                        'lunch_used': usage.lunch_used,
+                        'snack_used': usage.snack_used
+                    },
+                    'detected_meal_type': meal_type
+                }
+            
+            # Check daily limit
             meals_used = usage.meals_used_today
             daily_limit = student.daily_meal_limit
             meals_remaining = max(0, daily_limit - meals_used)
@@ -193,43 +253,52 @@ class DatabaseManager:
                     'reason': config.DENIAL_REASONS['LIMIT_REACHED'],
                     'meals_used': meals_used,
                     'meals_remaining': 0,
-                    'last_meal_time': usage.last_meal_time
+                    'last_meal_time': usage.last_meal_time,
+                    'meal_type_status': {
+                        'breakfast_used': usage.breakfast_used,
+                        'lunch_used': usage.lunch_used,
+                        'snack_used': usage.snack_used
+                    },
+                    'detected_meal_type': meal_type
                 }
             
-            # Student is eligible
             return {
                 'eligible': True,
                 'reason': None,
                 'meals_used': meals_used,
                 'meals_remaining': meals_remaining,
-                'last_meal_time': usage.last_meal_time
+                'last_meal_time': usage.last_meal_time,
+                'meal_type_status': {
+                    'breakfast_used': usage.breakfast_used,
+                    'lunch_used': usage.lunch_used,
+                    'snack_used': usage.snack_used
+                },
+                'detected_meal_type': meal_type
             }
         
         except Exception as e:
             logger.error(f"Error checking eligibility: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             return {
                 'eligible': False,
                 'reason': 'System error',
                 'meals_used': 0,
-                'meals_remaining': 0
+                'meals_remaining': 0,
+                'meal_type_status': {},
+                'detected_meal_type': meal_type
             }
     
-    def increment_meal_usage(self, student_id):
-        """
-        Increment today's meal count for student
-        
-        Args:
-            student_id: Student ID
-        
-        Returns:
-            True if successful, False otherwise
-        """
+    def increment_meal_usage(self, student_id, meal_type=None):
         try:
+            if meal_type is None:
+                meal_type = self.auto_detect_meal_type()
+            
             usage = self.get_today_usage(student_id)
             if usage:
-                usage.increment_usage()
+                usage.increment_usage(meal_type)
                 db.session.commit()
-                logger.info(f"Incremented meal usage for {student_id}: {usage.meals_used_today}")
+                logger.info(f"Incremented {meal_type} usage for {student_id}: {usage.meals_used_today} total")
                 return True
             return False
         except Exception as e:
@@ -238,19 +307,10 @@ class DatabaseManager:
             return False
     
     def reset_daily_usage(self):
-        """
-        Reset all daily meal usage (called at midnight)
-        Deletes old records and creates fresh ones for active students
-        
-        Returns:
-            Number of records reset
-        """
         try:
-            # Delete yesterday's records
             yesterday = date.today()
             deleted = DailyMealUsage.query.filter(DailyMealUsage.date < yesterday).delete()
             db.session.commit()
-            
             logger.info(f"Daily usage reset complete. Deleted {deleted} old records.")
             return deleted
         except Exception as e:
@@ -258,24 +318,8 @@ class DatabaseManager:
             logger.error(f"Error resetting daily usage: {e}")
             return 0
     
-    # ==================== TRANSACTION OPERATIONS ====================
-    
     def log_transaction(self, student_id, student_name, meal_plan_type, meal_type,
                        status, denied_reason=None):
-        """
-        Log a meal transaction
-        
-        Args:
-            student_id: Student ID
-            student_name: Student name (plaintext - will be encrypted)
-            meal_plan_type: Meal plan type
-            meal_type: Breakfast, Lunch, Snack, or None
-            status: Approved, Denied, Error
-            denied_reason: Reason for denial (if applicable)
-        
-        Returns:
-            MealTransaction object if successful, None otherwise
-        """
         try:
             transaction = MealTransaction.create_encrypted(
                 student_id=student_id,
@@ -287,10 +331,8 @@ class DatabaseManager:
                 status=status,
                 denied_reason=denied_reason
             )
-            
             db.session.add(transaction)
             db.session.commit()
-            
             logger.info(f"Transaction logged: {student_id} - {status}")
             return transaction
         except Exception as e:
@@ -299,7 +341,6 @@ class DatabaseManager:
             return None
     
     def get_recent_transactions(self, limit=50):
-        """Get recent transactions"""
         try:
             transactions = MealTransaction.query.order_by(
                 MealTransaction.transaction_timestamp.desc()
@@ -310,31 +351,24 @@ class DatabaseManager:
             return []
     
     def get_daily_stats(self):
-        """Get today's transaction statistics"""
         try:
             today = date.today()
             today_start = datetime.combine(today, datetime.min.time())
             
-            logger.info(f"Getting daily stats for {today}")
-            
-            # Total transactions today
             total = MealTransaction.query.filter(
                 MealTransaction.transaction_timestamp >= today_start
             ).count()
             
-            # Approved transactions
             approved = MealTransaction.query.filter(
                 MealTransaction.transaction_timestamp >= today_start,
                 MealTransaction.status == config.STATUS_APPROVED
             ).count()
             
-            # Denied transactions
             denied = MealTransaction.query.filter(
                 MealTransaction.transaction_timestamp >= today_start,
                 MealTransaction.status == config.STATUS_DENIED
             ).count()
             
-            # By meal type (only approved)
             breakfast = MealTransaction.query.filter(
                 MealTransaction.transaction_timestamp >= today_start,
                 MealTransaction.meal_type == 'Breakfast',
@@ -353,8 +387,6 @@ class DatabaseManager:
                 MealTransaction.status == config.STATUS_APPROVED
             ).count()
             
-            logger.info(f"Stats: total={total}, approved={approved}, denied={denied}, breakfast={breakfast}, lunch={lunch}, snack={snack}")
-            
             return {
                 'total': total,
                 'approved': approved,
@@ -365,9 +397,6 @@ class DatabaseManager:
             }
         except Exception as e:
             logger.error(f"Error getting daily stats: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
-            # Return zeros instead of failing
             return {
                 'total': 0,
                 'approved': 0,
@@ -377,32 +406,11 @@ class DatabaseManager:
                 'snack': 0
             }
     
-    # ==================== MUNDOWARE OPERATIONS ====================
-    
     def update_mundoware_lookup(self, student, eligible):
-        """
-        Update MUNDOWARE shared lookup table
-        
-        Args:
-            student: Student object
-            eligible: Boolean eligibility status
-        
-        Returns:
-            True if successful, False otherwise
-        """
         try:
-            # Decrypt student name for MUNDOWARE (they need plaintext)
             student_name = self.em.decrypt(student.student_name)
+            MundowareStudentLookup.query.filter_by(station_id=config.STATION_ID).delete()
             
-            # Delete existing record for this station
-            deleted = MundowareStudentLookup.query.filter_by(
-                station_id=config.STATION_ID
-            ).delete()
-            
-            if deleted > 0:
-                logger.debug(f"Deleted {deleted} old lookup entries before creating new one")
-            
-            # Create new record
             lookup = MundowareStudentLookup(
                 station_id=config.STATION_ID,
                 student_id=student.student_id,
@@ -410,36 +418,18 @@ class DatabaseManager:
                 meal_plan_type=student.meal_plan_type,
                 eligible=eligible
             )
-            
             db.session.add(lookup)
             db.session.commit()
-            
-            # Verify it was created
-            verify = MundowareStudentLookup.query.filter_by(
-                station_id=config.STATION_ID,
-                student_id=student.student_id
-            ).first()
-            
-            if verify:
-                logger.info(f"✅ MUNDOWARE lookup created: {student.student_id} (eligible: {eligible})")
-                return True
-            else:
-                logger.error(f"❌ Failed to verify MUNDOWARE lookup creation")
-                return False
-                
+            logger.info(f"✅ MUNDOWARE lookup created: {student.student_id} (eligible: {eligible})")
+            return True
         except Exception as e:
             db.session.rollback()
             logger.error(f"❌ Error updating MUNDOWARE lookup: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
             return False
     
     def clear_mundoware_lookup(self):
-        """Clear MUNDOWARE lookup for this station"""
         try:
-            MundowareStudentLookup.query.filter_by(
-                station_id=config.STATION_ID
-            ).delete()
+            MundowareStudentLookup.query.filter_by(station_id=config.STATION_ID).delete()
             db.session.commit()
             return True
         except Exception as e:
@@ -448,11 +438,9 @@ class DatabaseManager:
             return False
 
 
-# Singleton instance
 _db_manager = None
 
 def get_db_manager():
-    """Get or create database manager singleton"""
     global _db_manager
     if _db_manager is None:
         _db_manager = DatabaseManager()

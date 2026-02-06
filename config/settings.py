@@ -84,14 +84,38 @@ class Config:
     # Encryption
     ENCRYPTION_KEY = os.getenv('ENCRYPTION_KEY')
     
-    # Business Rules
+    # Business Rules - UPDATED WITH FRIDAY PLANS
     MEAL_PLAN_TYPES = {
-        'Basic': 1,      # 1 meal per day
-        'Premium': 2,    # 2 meals per day
-        'Unlimited': 999 # Unlimited meals
+        # Regular meal plans
+        'Basic': 1,           # 1 lunch per day
+        'Plus': 2,            # 1 lunch + 1 snack per day
+        'Premium': 3,         # 1 breakfast + 1 lunch + 1 snack per day
+        'Unlimited': 999,     # Unlimited meals
+        
+        # Friday-only meal plans
+        'FridayBasic': 1,     # 1 lunch on Fridays only
+        'FridayPlus': 2,      # 1 lunch + 1 snack on Fridays only
+        'FridayPremium': 3,   # 1 breakfast + 1 lunch + 1 snack on Fridays only
+    }
+    
+    # Meal type restrictions by plan
+    MEAL_PLAN_ALLOWED_TYPES = {
+        'Basic': ['Lunch'],
+        'Plus': ['Lunch', 'Snack'],
+        'Premium': ['Breakfast', 'Lunch', 'Snack'],
+        'Unlimited': ['Breakfast', 'Lunch', 'Snack'],
+        'FridayBasic': ['Lunch'],
+        'FridayPlus': ['Lunch', 'Snack'],
+        'FridayPremium': ['Breakfast', 'Lunch', 'Snack'],
     }
     
     MEAL_TYPES = ['Breakfast', 'Lunch', 'Snack']
+
+    MEAL_TIME_WINDOWS = {
+    'Breakfast': {'start': 6, 'end': 8.5},    # 6:00 AM - 8:30 AM
+    'Lunch': {'start': 11, 'end': 14},        # 11:00 AM - 2:00 PM
+    'Snack': {'start': 9, 'end': 11},        # 9:00 AM - 11:00 AM
+}
     
     # Transaction Statuses
     STATUS_APPROVED = 'Approved'
@@ -101,17 +125,24 @@ class Config:
     # Denial Reasons
     DENIAL_REASONS = {
         'LIMIT_REACHED': 'Daily meal limit reached',
+        'MEAL_TYPE_NOT_ALLOWED': 'This meal type is not included in your plan',
+        'MEAL_TYPE_ALREADY_USED': 'You already used this meal type today',
+        'NO_FRIDAY_PLAN': 'No meal plan for Fridays',
+        'NOT_FRIDAY': 'Friday-only meal plan (today is not Friday)',
         'NO_PLAN': 'No active meal plan found',
         'CARD_NOT_FOUND': 'Card not recognized',
         'INACTIVE': 'Student account inactive',
         'MANUAL_OVERRIDE': 'Manually denied by cashier'
     }
     
-
-    
     # Google Sheets Integration
     GOOGLE_SHEETS_ENABLED = os.getenv('GOOGLE_SHEETS_ENABLED', 'False').lower() == 'true'
     GOOGLE_SHEETS_WEB_APP_URL = os.getenv('GOOGLE_SHEETS_WEB_APP_URL', '')
+    
+    # Photo storage
+    PHOTO_UPLOAD_FOLDER = 'web/static/photos'
+    ALLOWED_PHOTO_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
+    MAX_PHOTO_SIZE_MB = 5
     
     def validate(self):
         """Validate critical configuration settings"""

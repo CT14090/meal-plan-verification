@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}Scan Card{% endblock %}
+{% block content %}
+<div class="container">
+  <div class="card">
+    <div class="header">
+      <h1>📇 Scan Student Card</h1>
+      <p>Wave card near reader to capture UID</p>
+    </div>
+
+    <div class="icon" style="font-size: 100px">💳</div>
+
+    <div id="card-uid-display" style="font-size: 24px; margin: 20px; color: #667eea;">
+      Waiting for card...
+    </div>
+
+    <div id="captured-uid" style="display: none;">
+      <div style="background: #10b981; color: white; padding: 20px; border-radius: 12px; margin: 20px;">
+        <strong>Card UID Captured:</strong><br>
+        <span id="uid-value" style="font-size: 28px; font-family: monospace;"></span>
+      </div>
+      <button onclick="copyUID()" class="btn btn-success">📋 Copy UID</button>
+      <button onclick="resetScan()" class="btn btn-secondary">🔄 Scan Another</button>
+    </div>
+
+    <div style="margin-top: 30px;">
+      <a href="/admin/students" class="btn btn-secondary">← Back to Students</a>
+    </div>
+  </div>
+</div>
+
+<script>
+  let lastScannedUID = null;
+
+  // Poll for recent scans
+  setInterval(async () => {
+    try {
+      const response = await fetch('/api/check-recent-scan');
+      const data = await response.json();
+      
+      if (data.success && data.student_id) {
+        // We got a scan, but we need the actual card UID
+        // Check the lookup table for the UID
+        checkForNewCard();
+      }
+    } catch (error) {
+      console.error('Error checking for scans:', error);
+    }
+  }, 500);
+
+  async function checkForNewCard() {
+    try {
+      const response = await fetch('/api/last-card-scan');
+      const data = await response.json();
+      
+      if (data.success && data.card_uid && data.card_uid !== lastScannedUID) {
+        lastScannedUID = data.card_uid;
+        document.getElementById('card-uid-display').textContent = 'Card detected!';
+        document.getElementById('uid-value').textContent = data.card_uid;
+        document.getElementById('captured-uid').style.display = 'block';
+      }
+    } catch (error) {
+      console.error('Error:', error);
+    }
+  }
+
+  function copyUID() {
+    const uid = document.getElementById('uid-value').textContent;
+    navigator.clipboard.writeText(uid);
+    alert('UID copied to clipboard! Now paste it in the Add Student form.');
+  }
+
+  function resetScan() {
+    document.getElementById('captured-uid').style.display = 'none';
+    document.getElementById('card-uid-display').textContent = 'Waiting for card...';
+    lastScannedUID = null;
+  }
+</script>
+{% endblock %}

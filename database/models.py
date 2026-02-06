@@ -1,6 +1,7 @@
 """
 Database Models - SQLAlchemy ORM models for all database tables
 Supports both SQLite and MySQL through SQLAlchemy
+UPDATED: Meal type tracking, Friday plans, photo support
 """
 
 from datetime import datetime, date
@@ -23,7 +24,7 @@ class Student(db.Model):
     meal_plan_type = db.Column(db.String(50), nullable=False)
     daily_meal_limit = db.Column(db.Integer, nullable=False)
     status = db.Column(db.String(20), default='Active')
-    photo_url = db.Column(db.String(200))
+    photo_filename = db.Column(db.String(200))  # e.g., "10001.jpg"
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
@@ -51,7 +52,7 @@ class Student(db.Model):
             'meal_plan_type': self.meal_plan_type,
             'daily_meal_limit': self.daily_meal_limit,
             'status': self.status,
-            'photo_url': self.photo_url,
+            'photo_filename': self.photo_filename,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }
@@ -67,7 +68,7 @@ class Student(db.Model):
     
     @staticmethod
     def create_encrypted(student_id, card_rfid_uid, student_name, grade_level, 
-                        meal_plan_type, daily_meal_limit, status='Active', photo_url=None):
+                        meal_plan_type, daily_meal_limit, status='Active', photo_filename=None):
         """
         Create new student with encrypted fields
         
@@ -87,7 +88,7 @@ class Student(db.Model):
             meal_plan_type=meal_plan_type,
             daily_meal_limit=daily_meal_limit,
             status=status,
-            photo_url=photo_url
+            photo_filename=photo_filename
         )
         
         return student
@@ -96,7 +97,7 @@ class Student(db.Model):
 class DailyMealUsage(db.Model):
     """
     Daily Meal Usage Tracking
-    Tracks how many meals each student has used today
+    Tracks how many meals each student has used today (by type)
     Resets at midnight
     """
     __tablename__ = 'daily_meal_usage'
@@ -105,6 +106,9 @@ class DailyMealUsage(db.Model):
     student_id = db.Column(db.String(20), db.ForeignKey('students.student_id'), nullable=False)
     date = db.Column(db.Date, nullable=False, default=date.today)
     meals_used_today = db.Column(db.Integer, default=0)
+    breakfast_used = db.Column(db.Integer, default=0)
+    lunch_used = db.Column(db.Integer, default=0)
+    snack_used = db.Column(db.Integer, default=0)
     last_meal_time = db.Column(db.DateTime)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -123,6 +127,9 @@ class DailyMealUsage(db.Model):
             'student_id': self.student_id,
             'date': self.date.isoformat(),
             'meals_used_today': self.meals_used_today,
+            'breakfast_used': self.breakfast_used,
+            'lunch_used': self.lunch_used,
+            'snack_used': self.snack_used,
             'last_meal_time': self.last_meal_time.isoformat() if self.last_meal_time else None,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
@@ -132,9 +139,28 @@ class DailyMealUsage(db.Model):
         """Check if student has meals remaining today"""
         return self.meals_used_today < daily_limit
     
-    def increment_usage(self):
+    def has_meal_type_available(self, meal_type):
+        """Check if student has this specific meal type available"""
+        if meal_type == 'Breakfast':
+            return self.breakfast_used == 0
+        elif meal_type == 'Lunch':
+            return self.lunch_used == 0
+        elif meal_type == 'Snack':
+            return self.snack_used == 0
+        return False
+    
+    def increment_usage(self, meal_type=None):
         """Increment meal count and update timestamp"""
         self.meals_used_today += 1
+        
+        # Track by meal type
+        if meal_type == 'Breakfast':
+            self.breakfast_used += 1
+        elif meal_type == 'Lunch':
+            self.lunch_used += 1
+        elif meal_type == 'Snack':
+            self.snack_used += 1
+        
         self.last_meal_time = datetime.utcnow()
 
 

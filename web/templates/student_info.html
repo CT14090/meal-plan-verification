@@ -1,5 +1,49 @@
-{% extends "base.html" %} {% block title %}Student Verification{% endblock %} {%
-block content %}
+{% extends "base.html" %} 
+{% block title %}Student Verification{% endblock %} 
+{% block styles %}
+<style>
+  .student-photo {
+    width: 150px;
+    height: 150px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 4px solid #667eea;
+    margin: 20px auto;
+    display: block;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+  }
+  
+  .no-photo {
+    width: 150px;
+    height: 150px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    margin: 20px auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 60px;
+    color: white;
+  }
+  
+  .meal-info {
+    background: #f0f9ff;
+    border: 2px solid #3b82f6;
+    border-radius: 12px;
+    padding: 15px;
+    margin: 20px 0;
+    text-align: center;
+  }
+  
+  .meal-info .current-meal {
+    font-size: 24px;
+    font-weight: bold;
+    color: #1e40af;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
 <div class="container">
   <div class="card">
     <div class="header">
@@ -7,7 +51,9 @@ block content %}
       <div class="station">{{ station_name }}</div>
     </div>
 
-    <div class="icon">��</div>
+    <div id="photo-container">
+      <div class="no-photo">👤</div>
+    </div>
 
     <div class="student-info">
       <h2 id="student-name">Loading...</h2>
@@ -36,12 +82,12 @@ block content %}
         <div class="usage-bar-fill" id="usage-fill">0 / 0 used</div>
       </div>
 
-      <div
-        id="eligibility-status"
-        class="status-badge"
-        style="margin: 15px 0"
-      ></div>
+      <div id="meal-info" class="meal-info" style="display: none;">
+        <div class="current-meal" id="current-meal-type">🍽️ Lunch Service</div>
+        <div style="color: #6b7280; margin-top: 5px;">Auto-detected based on current time</div>
+      </div>
 
+      <div id="eligibility-status" class="status-badge" style="margin: 15px 0"></div>
       <div id="action-buttons" style="margin-top: 15px"></div>
     </div>
   </div>
@@ -50,6 +96,8 @@ block content %}
 <script>
   const urlParams = new URLSearchParams(window.location.search);
   const studentId = urlParams.get("student");
+  let studentData = null;
+  let detectedMealType = null;
 
   if (studentId) {
     loadStudent(studentId);
@@ -58,9 +106,6 @@ block content %}
   }
 
   function loadStudent(id) {
-    // Get student info but DON'T clear lookup yet
-    // (lookup will be cleared when we navigate away)
-    
     fetch("/api/manual-lookup", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -69,157 +114,96 @@ block content %}
       .then((response) => response.json())
       .then((data) => {
         if (data.success) {
-          displayStudent(data.student, data.eligibility);
+          studentData = data.student;
+          displayStudent(data.student, data.eligibility_by_type);
         } else {
-          document.getElementById("student-name").textContent =
-            "Student Not Found";
-          document.getElementById("eligibility-status").className =
-            "status-badge status-error";
-          document.getElementById("eligibility-status").textContent =
-            "❌ " + data.message;
-
-          // Log the denial for student not found
-          logDenial(id, data.message || "Student not found");
-
-          // Auto-return after showing error
-          setTimeout(() => {
-            clearLookupAndReturn();
-          }, 3000);
+          document.getElementById("student-name").textContent = "Student Not Found";
+          document.getElementById("eligibility-status").className = "status-badge status-error";
+          document.getElementById("eligibility-status").textContent = "❌ " + data.message;
+          setTimeout(() => { clearLookupAndReturn(); }, 3000);
         }
       })
-      .catch((error) => {
+      .catch(() => {
         document.getElementById("student-name").textContent = "Error";
-        document.getElementById("eligibility-status").className =
-          "status-badge status-error";
-        document.getElementById("eligibility-status").textContent =
-          "❌ System Error";
-
-        setTimeout(() => {
-          clearLookupAndReturn();
-        }, 3000);
+        document.getElementById("eligibility-status").className = "status-badge status-error";
+        document.getElementById("eligibility-status").textContent = "❌ System Error";
+        setTimeout(() => { clearLookupAndReturn(); }, 3000);
       });
   }
 
-  function displayStudent(student, eligibility) {
+  function displayStudent(student, eligibilityByType) {
+    const photoContainer = document.getElementById("photo-container");
+    if (student.photo_filename) {
+      photoContainer.innerHTML = '<img src="/static/photos/' + student.photo_filename + '" alt="' + student.student_name + '" class="student-photo">';
+    }
+
     document.getElementById("student-name").textContent = student.student_name;
     document.getElementById("student-id").textContent = student.student_id;
     document.getElementById("grade").textContent = student.grade_level;
     document.getElementById("meal-plan").textContent = student.meal_plan_type;
-    document.getElementById("daily-limit").textContent =
-      student.daily_meal_limit + " meals";
+    document.getElementById("daily-limit").textContent = student.daily_meal_limit + " meals";
 
-    const usagePct = (eligibility.meals_used / student.daily_meal_limit) * 100;
-    const usageFill = document.getElementById("usage-fill");
-    usageFill.style.width = usagePct + "%";
-    usageFill.textContent =
-      eligibility.meals_used + " / " + student.daily_meal_limit + " used";
-
-    if (usagePct >= 100) {
-      usageFill.classList.add("full");
+    for (const [mealType, eligibility] of Object.entries(eligibilityByType)) {
+      if (eligibility.detected_meal_type) {
+        detectedMealType = mealType;
+        break;
+      }
     }
 
-    const statusDiv = document.getElementById("eligibility-status");
-    const buttonsDiv = document.getElementById("action-buttons");
+    if (detectedMealType) {
+      const mealIcons = { 'Breakfast': '🌅', 'Lunch': '🍽️', 'Snack': '🍿' };
+      document.getElementById("meal-info").style.display = "block";
+      document.getElementById("current-meal-type").innerHTML = (mealIcons[detectedMealType] || '🍽️') + ' ' + detectedMealType + ' Service';
+    }
+
+    const eligibility = eligibilityByType[detectedMealType] || Object.values(eligibilityByType)[0];
+    const totalUsed = eligibility.meals_used || 0;
+    const usagePct = (totalUsed / student.daily_meal_limit) * 100;
+    const usageFill = document.getElementById("usage-fill");
+    usageFill.style.width = usagePct + "%";
+    usageFill.textContent = totalUsed + " / " + student.daily_meal_limit + " used";
+    if (usagePct >= 100) usageFill.classList.add("full");
 
     if (eligibility.eligible) {
-      // ELIGIBLE - Only show APPROVE button
-      statusDiv.className = "status-badge status-success";
-      statusDiv.textContent = "✅ ELIGIBLE FOR MEAL";
-
-      buttonsDiv.innerHTML = `
-            <button onclick="approveMeal('${student.student_id}')" class="btn btn-success">
-                ✓ APPROVE MEAL
-            </button>
-            <a href="/" class="btn btn-secondary" onclick="clearLookupAndReturn(); return false;">← Back</a>
-        `;
+      document.getElementById("eligibility-status").className = "status-badge status-success";
+      document.getElementById("eligibility-status").textContent = "✅ ELIGIBLE FOR MEAL";
+      document.getElementById("action-buttons").innerHTML = '<button onclick="approveMeal()" class="btn btn-success" id="approve-btn">✓ APPROVE MEAL</button><a href="/" class="btn btn-secondary" onclick="clearLookupAndReturn(); return false;">← Back</a>';
     } else {
-      // NOT ELIGIBLE - Show reason, log denial, auto-return
-      statusDiv.className = "status-badge status-error";
-      statusDiv.textContent = "❌ NOT ELIGIBLE";
-
-      buttonsDiv.innerHTML = `
-            <div class="message" style="color: #ef4444; margin-bottom: 15px; font-size: 20px;">
-                <strong>${eligibility.reason}</strong>
-            </div>
-            <div style="font-size: 16px; color: #6b7280; margin-bottom: 15px;">
-                Returning in <span id="countdown">3</span> seconds...
-            </div>
-            <a href="/" class="btn btn-secondary" onclick="clearCountdown(); clearLookupAndReturn(); return false;">← Return Now</a>
-        `;
-
-      // Log the denial to database (ONLY for ineligible students)
-      logDenial(student.student_id, eligibility.reason);
-
-      // Auto-redirect countdown
+      document.getElementById("eligibility-status").className = "status-badge status-error";
+      document.getElementById("eligibility-status").textContent = "❌ NOT ELIGIBLE";
+      document.getElementById("action-buttons").innerHTML = '<div class="message" style="color: #ef4444; margin-bottom: 15px; font-size: 20px;"><strong>' + eligibility.reason + '</strong></div><div style="font-size: 16px; color: #6b7280; margin-bottom: 15px;">Returning in <span id="countdown">3</span> seconds...</div><a href="/" class="btn btn-secondary" onclick="clearCountdown(); clearLookupAndReturn(); return false;">← Return Now</a>';
+      
+      fetch("/api/deny-meal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ student_id: student.student_id, meal_type: detectedMealType, reason: eligibility.reason }),
+      }).catch(() => {});
+      
       let timeLeft = 3;
       const countdownInterval = setInterval(() => {
         timeLeft--;
         const countdownEl = document.getElementById("countdown");
-        if (countdownEl) {
-          countdownEl.textContent = timeLeft;
-        }
-
-        if (timeLeft <= 0) {
-          clearInterval(countdownInterval);
-          clearLookupAndReturn();
-        }
+        if (countdownEl) countdownEl.textContent = timeLeft;
+        if (timeLeft <= 0) { clearInterval(countdownInterval); clearLookupAndReturn(); }
       }, 1000);
-
       window.currentCountdown = countdownInterval;
     }
   }
 
-  function logDenial(studentId, reason) {
-    // Call the deny-meal API to log this denial in the database
-    fetch("/api/deny-meal", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        student_id: studentId,
-        reason: reason,
-      }),
-    }).catch((err) => {
-      console.error("Error logging denial:", err);
-    });
-  }
-
-  function clearCountdown() {
-    if (window.currentCountdown) {
-      clearInterval(window.currentCountdown);
-    }
-  }
-  
-  function clearLookupAndReturn() {
-    // Clear lookup before returning to waiting screen
-    fetch("/api/clear-lookup", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-    }).then(() => {
-      console.log('✅ Lookup cleared, returning to waiting screen');
-      window.location.href = "/";
-    }).catch(() => {
-      // Even if clearing fails, still return
-      window.location.href = "/";
-    });
-  }
-
-  function approveMeal(studentId) {
-    // Disable the button to prevent double-clicks
-    const approveBtn = event.target;
+  function approveMeal() {
+    const approveBtn = document.getElementById('approve-btn');
     approveBtn.disabled = true;
     approveBtn.textContent = "Processing...";
     
     fetch("/api/approve-meal", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ student_id: studentId, meal_type: "Lunch" }),
+      body: JSON.stringify({ student_id: studentData.student_id, meal_type: detectedMealType }),
     })
       .then((response) => response.json())
       .then((data) => {
         if (data.success) {
-          console.log('✅ Meal approved, navigating to approved page');
-          // Navigate to approved page (lookup will be cleared there)
-          window.location.href = "/approved?student=" + studentId;
+          window.location.href = '/approved?student=' + studentData.student_id;
         } else {
           alert("❌ Error: " + data.message);
           approveBtn.disabled = false;
@@ -227,10 +211,20 @@ block content %}
         }
       })
       .catch((error) => {
-        alert("❌ Error approving meal: " + error.message);
+        alert("❌ Error: " + error.message);
         approveBtn.disabled = false;
         approveBtn.textContent = "✓ APPROVE MEAL";
       });
+  }
+
+  function clearCountdown() {
+    if (window.currentCountdown) clearInterval(window.currentCountdown);
+  }
+  
+  function clearLookupAndReturn() {
+    fetch("/api/clear-lookup", { method: "POST", headers: { "Content-Type": "application/json" } })
+      .then(() => { window.location.href = "/"; })
+      .catch(() => { window.location.href = "/"; });
   }
 </script>
 {% endblock %}
