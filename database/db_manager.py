@@ -141,19 +141,46 @@ class DatabaseManager:
             return None
     
     def auto_detect_meal_type(self):
-        """Auto-detect meal type based on current time"""
-        current_hour = datetime.now().hour
-        
-        # Adjust these times for your school schedule:
-        if 6 <= current_hour < 10:
-            return 'Breakfast'
-        elif 10 <= current_hour < 14:
-            return 'Lunch'
-        elif 14 <= current_hour < 17:
-            return 'Snack'
-        else:
-            return None
-    
+        """Auto-detect meal type based on current time in Panama timezone"""
+        try:
+            import pytz
+            from datetime import datetime as dt
+            
+            panama_tz = pytz.timezone('America/Panama')
+            panama_time = dt.now(panama_tz)
+            current_hour = panama_time.hour
+            current_minute = panama_time.minute
+            
+            # Log the time for debugging
+            print(f"⏰ Panama time: {current_hour:02d}:{current_minute:02d}")
+            
+            # School meal times (24-hour format):
+            # Breakfast: 6:00 AM - 10:00 AM
+            # Lunch: 10:00 AM - 2:00 PM
+            # Snack: 2:00 PM - 5:00 PM
+            
+            if 6 <= current_hour < 10:
+                return 'Breakfast'
+            elif 10 <= current_hour < 14:
+                return 'Lunch'
+            elif 14 <= current_hour < 17:
+                return 'Snack'
+            else:
+                return None
+        except Exception as e:
+            print(f"⚠️  Timezone error: {e}, using system time")
+            from datetime import datetime as dt
+            current_hour = dt.now().hour
+            
+            if 6 <= current_hour < 10:
+                return 'Breakfast'
+            elif 10 <= current_hour < 14:
+                return 'Lunch'
+            elif 14 <= current_hour < 17:
+                return 'Snack'
+            else:
+                return None
+
     def check_eligibility(self, student, meal_type=None):
         try:
             # AUTO-DETECT meal type if not provided
@@ -178,31 +205,36 @@ class DatabaseManager:
                     'meal_type_status': {},
                     'detected_meal_type': meal_type
                 }
+            # Check Friday meal plan logic
+            # Friday plans (FridayBasic, FridayPlus, FridayPremium) = Work Mon-Fri (all 5 days)
+            # Regular plans (Basic, Plus, Premium, Unlimited) = Work Mon-Thu only (NO Friday)
             
-            # Friday logic
-            today_weekday = date.today().weekday()
-            is_friday = (today_weekday == 4)
+            try:
+                import pytz
+                panama_tz = pytz.timezone('America/Panama')
+                panama_time = datetime.now(panama_tz)
+                today_weekday = panama_time.weekday()
+            except:
+                today_weekday = date.today().weekday()
+            
+            is_friday = (today_weekday == 4)  # Friday = 4
             is_friday_plan = student.meal_plan_type.startswith('Friday')
             
-            if is_friday_plan and not is_friday:
-                return {
-                    'eligible': False,
-                    'reason': config.DENIAL_REASONS['NOT_FRIDAY'],
-                    'meals_used': 0,
-                    'meals_remaining': 0,
-                    'meal_type_status': {},
-                    'detected_meal_type': meal_type
-                }
+            # Day check debug removed
             
+            # Regular plans are NOT valid on Fridays
             if not is_friday_plan and is_friday:
                 return {
                     'eligible': False,
-                    'reason': config.DENIAL_REASONS['NO_FRIDAY_PLAN'],
+                    'reason': 'Regular meal plans not valid on Fridays',
                     'meals_used': 0,
                     'meals_remaining': 0,
                     'meal_type_status': {},
                     'detected_meal_type': meal_type
                 }
+            
+            # Friday plans work ALL days (Mon-Fri)
+            # Regular plans work Mon-Thu only
             
             # Check meal type allowed
             allowed_types = config.MEAL_PLAN_ALLOWED_TYPES.get(student.meal_plan_type, [])

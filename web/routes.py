@@ -67,30 +67,6 @@ def scan_card_page():
     """Card UID scanner for enrollment"""
     return render_template('scan_card.html')
 
-@api_bp.route('/last-card-scan', methods=['GET'])
-def last_card_scan():
-    """Get the last scanned card UID"""
-    try:
-        # Check if there's a recent scan with the actual card UID
-        # We'll store this in a simple cache or session
-        from flask import session
-        card_uid = session.get('last_scanned_card_uid')
-        
-        if card_uid:
-            return jsonify({
-                'success': True,
-                'card_uid': card_uid
-            })
-        else:
-            return jsonify({
-                'success': True,
-                'card_uid': None
-            })
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-# ==================== API ENDPOINTS ====================
-
 @api_bp.route('/scan-card', methods=['POST'])
 def scan_card():
     """Handle card scan from RFID reader"""
@@ -105,6 +81,10 @@ def scan_card():
             }), 400
         
         logger.info(f"Card scanned: {card_uid[:8]}***")
+
+        # Store in session for card enrollment
+        from flask import session
+        session['last_scanned_card_uid'] = card_uid
         
         # Find student
         student = db_manager.find_student_by_rfid(card_uid)
@@ -417,6 +397,26 @@ def clear_lookup():
         logger.error(f"Error clearing lookup: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
+@api_bp.route('/last-card-scan', methods=['GET'])
+def last_card_scan():
+    """Get the last scanned card UID from session"""
+    try:
+        from flask import session
+        card_uid = session.get('last_scanned_card_uid')
+        
+        if card_uid:
+            return jsonify({
+                'success': True,
+                'card_uid': card_uid
+            })
+        else:
+            return jsonify({
+                'success': True,
+                'card_uid': None
+            })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 # ==================== ADMIN ROUTES ====================
 
 @admin_bp.route('/')
@@ -429,6 +429,7 @@ def dashboard():
                           stats=stats,
                           student_count=student_count)
 
+@admin_bp.route('/scan-card')
 @admin_bp.route('/students')
 def students_page():
     """Student management page"""

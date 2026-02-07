@@ -110,6 +110,9 @@ class Config:
     }
     
     MEAL_TYPES = ['Breakfast', 'Lunch', 'Snack']
+    
+    # Timezone configuration
+    TIMEZONE = 'America/Panama'  # Panama timezone (EST, UTC-5)
 
     MEAL_TIME_WINDOWS = {
     'Breakfast': {'start': 6, 'end': 8.5},    # 6:00 AM - 8:30 AM

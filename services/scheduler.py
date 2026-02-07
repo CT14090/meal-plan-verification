@@ -79,25 +79,24 @@ class SchedulerService:
         logger.info("Starting daily meal usage reset...")
         
         try:
-            # Reset all daily meal usage
-            deleted_count = self.db_manager.reset_daily_usage()
+            from database.models import DailyMealUsage, MundowareStudentLookup
+            from datetime import date
             
-            logger.info(f"Daily reset complete. Cleared {deleted_count} old usage records.")
-            logger.info("All students now have fresh daily meal allowances.")
+            # Delete ALL daily meal usage records (not just old ones)
+            deleted = DailyMealUsage.query.delete()
+            db.session.commit()
             
-            # Log event
-            from utils.logger import log_transaction
-            log_transaction(
-                "SYSTEM",
-                "SYSTEM",
-                "RESET",
-                "COMPLETED",
-                f"Daily reset completed - {deleted_count} records cleared"
-            )
+            # Clear MUNDOWARE lookups
+            MundowareStudentLookup.query.delete()
+            db.session.commit()
+            
+            logger.info(f"Daily reset complete. Cleared {deleted} usage records.")
+            print(f"🔄 DAILY RESET: Cleared {deleted} usage records at midnight")
             
             return True
         
         except Exception as e:
+            db.session.rollback()
             logger.error(f"Error during daily reset: {e}")
             return False
     
