@@ -367,7 +367,7 @@ def check_recent_scan():
         ).order_by(MundowareStudentLookup.timestamp.desc()).first()
         
         if lookup:
-            print(f"🔍 Recent scan detected: {lookup.student_id}")
+
             return jsonify({
                 'success': True,
                 'student_id': lookup.student_id,

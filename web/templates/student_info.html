@@ -26,19 +26,96 @@
     color: white;
   }
   
-  .meal-info {
-    background: #f0f9ff;
-    border: 2px solid #3b82f6;
-    border-radius: 12px;
-    padding: 15px;
-    margin: 20px 0;
-    text-align: center;
+  .tokens-container {
+    display: flex;
+    justify-content: center;
+    gap: 30px;
+    margin: 40px 0;
+    flex-wrap: wrap;
   }
   
-  .meal-info .current-meal {
+  .token {
+    width: 160px;
+    height: 160px;
+    border-radius: 50%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.3s;
+    border: 5px solid;
+    font-weight: bold;
+    position: relative;
+  }
+  
+  .token:hover:not(.token-used):not(.token-unavailable) {
+    transform: scale(1.15);
+    box-shadow: 0 12px 30px rgba(0,0,0,0.4);
+  }
+  
+  .token-available {
+    background: linear-gradient(135deg, #10b981, #059669);
+    border-color: #047857;
+    color: white;
+  }
+  
+  .token-used {
+    background: #fee2e2;
+    border-color: #dc2626;
+    color: #991b1b;
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+  
+  .token-unavailable {
+    background: #f3f4f6;
+    border-color: #9ca3af;
+    color: #6b7280;
+    cursor: not-allowed;
+    opacity: 0.4;
+  }
+  
+  .token-icon {
+    font-size: 56px;
+    margin-bottom: 10px;
+  }
+  
+  .token-label {
+    font-size: 18px;
+    font-weight: bold;
+  }
+  
+  .token-status {
+    font-size: 13px;
+    margin-top: 6px;
+    opacity: 0.9;
+  }
+
+  .processing-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.7);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+  }
+
+  .processing-overlay.active {
+    display: flex;
+  }
+
+  .processing-message {
+    background: white;
+    padding: 40px;
+    border-radius: 20px;
+    text-align: center;
     font-size: 24px;
     font-weight: bold;
-    color: #1e40af;
   }
 </style>
 {% endblock %}
@@ -82,14 +159,22 @@
         <div class="usage-bar-fill" id="usage-fill">0 / 0 used</div>
       </div>
 
-      <div id="meal-info" class="meal-info" style="display: none;">
-        <div class="current-meal" id="current-meal-type">🍽️ Lunch Service</div>
-        <div style="color: #6b7280; margin-top: 5px;">Auto-detected based on current time</div>
-      </div>
+      <!-- TOKEN SYSTEM -->
+      <div class="tokens-container" id="tokens-container"></div>
 
-      <div id="eligibility-status" class="status-badge" style="margin: 15px 0"></div>
-      <div id="action-buttons" style="margin-top: 15px"></div>
+      <div id="eligibility-status" class="status-badge" style="margin: 15px 0; display: none;"></div>
+      
+      <div id="action-buttons" style="margin-top: 25px">
+        <a href="/" class="btn btn-secondary" onclick="clearLookupAndReturn(); return false;">← Back</a>
+      </div>
     </div>
+  </div>
+</div>
+
+<!-- Processing overlay -->
+<div class="processing-overlay" id="processing-overlay">
+  <div class="processing-message" id="processing-message">
+    Processing...
   </div>
 </div>
 
@@ -97,7 +182,14 @@
   const urlParams = new URLSearchParams(window.location.search);
   const studentId = urlParams.get("student");
   let studentData = null;
-  let detectedMealType = null;
+  let eligibilityData = null;
+  let allowedMealTypes = [];
+
+  const MEAL_ICONS = {
+    'Breakfast': '🌅',
+    'Lunch': '🍽️',
+    'Snack': '🍿'
+  };
 
   if (studentId) {
     loadStudent(studentId);
@@ -111,30 +203,24 @@
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ student_id: id }),
     })
-      .then((response) => response.json())
-      .then((data) => {
+      .then(r => r.json())
+      .then(data => {
         if (data.success) {
           studentData = data.student;
+          eligibilityData = data.eligibility_by_type;
+          allowedMealTypes = data.allowed_meal_types || [];
           displayStudent(data.student, data.eligibility_by_type);
         } else {
-          document.getElementById("student-name").textContent = "Student Not Found";
-          document.getElementById("eligibility-status").className = "status-badge status-error";
-          document.getElementById("eligibility-status").textContent = "❌ " + data.message;
-          setTimeout(() => { clearLookupAndReturn(); }, 3000);
+          showError("Student Not Found", data.message);
         }
       })
-      .catch(() => {
-        document.getElementById("student-name").textContent = "Error";
-        document.getElementById("eligibility-status").className = "status-badge status-error";
-        document.getElementById("eligibility-status").textContent = "❌ System Error";
-        setTimeout(() => { clearLookupAndReturn(); }, 3000);
-      });
+      .catch(() => showError("Error", "System Error"));
   }
 
   function displayStudent(student, eligibilityByType) {
     const photoContainer = document.getElementById("photo-container");
     if (student.photo_filename) {
-      photoContainer.innerHTML = '<img src="/static/photos/' + student.photo_filename + '" alt="' + student.student_name + '" class="student-photo">';
+      photoContainer.innerHTML = `<img src="/static/photos/${student.photo_filename}" class="student-photo">`;
     }
 
     document.getElementById("student-name").textContent = student.student_name;
@@ -143,88 +229,162 @@
     document.getElementById("meal-plan").textContent = student.meal_plan_type;
     document.getElementById("daily-limit").textContent = student.daily_meal_limit + " meals";
 
-    for (const [mealType, eligibility] of Object.entries(eligibilityByType)) {
-      if (eligibility.detected_meal_type) {
-        detectedMealType = mealType;
-        break;
-      }
-    }
-
-    if (detectedMealType) {
-      const mealIcons = { 'Breakfast': '🌅', 'Lunch': '🍽️', 'Snack': '🍿' };
-      document.getElementById("meal-info").style.display = "block";
-      document.getElementById("current-meal-type").innerHTML = (mealIcons[detectedMealType] || '🍽️') + ' ' + detectedMealType + ' Service';
-    }
-
-    const eligibility = eligibilityByType[detectedMealType] || Object.values(eligibilityByType)[0];
-    const totalUsed = eligibility.meals_used || 0;
+    // Update usage bar
+    const firstEligibility = Object.values(eligibilityByType)[0];
+    const totalUsed = firstEligibility.meals_used || 0;
     const usagePct = (totalUsed / student.daily_meal_limit) * 100;
     const usageFill = document.getElementById("usage-fill");
     usageFill.style.width = usagePct + "%";
-    usageFill.textContent = totalUsed + " / " + student.daily_meal_limit + " used";
+    usageFill.textContent = `${totalUsed} / ${student.daily_meal_limit} used`;
     if (usagePct >= 100) usageFill.classList.add("full");
 
-    if (eligibility.eligible) {
-      document.getElementById("eligibility-status").className = "status-badge status-success";
-      document.getElementById("eligibility-status").textContent = "✅ ELIGIBLE FOR MEAL";
-      document.getElementById("action-buttons").innerHTML = '<button onclick="approveMeal()" class="btn btn-success" id="approve-btn">✓ APPROVE MEAL</button><a href="/" class="btn btn-secondary" onclick="clearLookupAndReturn(); return false;">← Back</a>';
-    } else {
-      document.getElementById("eligibility-status").className = "status-badge status-error";
-      document.getElementById("eligibility-status").textContent = "❌ NOT ELIGIBLE";
-      document.getElementById("action-buttons").innerHTML = '<div class="message" style="color: #ef4444; margin-bottom: 15px; font-size: 20px;"><strong>' + eligibility.reason + '</strong></div><div style="font-size: 16px; color: #6b7280; margin-bottom: 15px;">Returning in <span id="countdown">3</span> seconds...</div><a href="/" class="btn btn-secondary" onclick="clearCountdown(); clearLookupAndReturn(); return false;">← Return Now</a>';
-      
-      fetch("/api/deny-meal", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ student_id: student.student_id, meal_type: detectedMealType, reason: eligibility.reason }),
-      }).catch(() => {});
-      
-      let timeLeft = 3;
-      const countdownInterval = setInterval(() => {
-        timeLeft--;
-        const countdownEl = document.getElementById("countdown");
-        if (countdownEl) countdownEl.textContent = timeLeft;
-        if (timeLeft <= 0) { clearInterval(countdownInterval); clearLookupAndReturn(); }
-      }, 1000);
-      window.currentCountdown = countdownInterval;
-    }
+    // Render tokens
+    renderTokens(eligibilityByType);
   }
 
-  function approveMeal() {
-    const approveBtn = document.getElementById('approve-btn');
-    approveBtn.disabled = true;
-    approveBtn.textContent = "Processing...";
+  function renderTokens(eligibilityByType) {
+    const container = document.getElementById("tokens-container");
+    container.innerHTML = '';
+
+    const mealTypes = ['Breakfast', 'Lunch', 'Snack'];
+
+    mealTypes.forEach(mealType => {
+      const eligibility = eligibilityByType[mealType];
+      const isAllowed = allowedMealTypes.includes(mealType);
+      const isUsed = eligibility.meal_type_status && 
+                     ((mealType === 'Breakfast' && eligibility.meal_type_status.breakfast_used) ||
+                      (mealType === 'Lunch' && eligibility.meal_type_status.lunch_used) ||
+                      (mealType === 'Snack' && eligibility.meal_type_status.snack_used));
+      
+      const token = document.createElement('div');
+      token.className = 'token';
+      
+      let tokenClass = '';
+      let statusText = '';
+      let clickable = false;
+
+      if (!isAllowed) {
+        tokenClass = 'token-unavailable';
+        statusText = 'Not in plan';
+      } else if (isUsed) {
+        tokenClass = 'token-used';
+        statusText = 'Used today';
+      } else {
+        tokenClass = 'token-available';
+        statusText = 'Click to approve';
+        clickable = true;
+      }
+
+      token.classList.add(tokenClass);
+      token.innerHTML = `
+        <div class="token-icon">${MEAL_ICONS[mealType]}</div>
+        <div class="token-label">${mealType}</div>
+        <div class="token-status">${statusText}</div>
+      `;
+
+      if (clickable) {
+        token.onclick = () => approveMealToken(mealType, eligibility);
+      }
+
+      container.appendChild(token);
+    });
+  }
+
+  function approveMealToken(mealType, eligibility) {
+    // Check eligibility first
+    if (!eligibility.eligible) {
+      showDenialMessage(eligibility.reason, mealType);
+      return;
+    }
+
+    // Show processing overlay
+    document.getElementById("processing-message").textContent = `Approving ${mealType}...`;
+    document.getElementById("processing-overlay").classList.add("active");
     
     fetch("/api/approve-meal", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ student_id: studentData.student_id, meal_type: detectedMealType }),
+      body: JSON.stringify({ 
+        student_id: studentData.student_id, 
+        meal_type: mealType 
+      }),
     })
-      .then((response) => response.json())
-      .then((data) => {
+      .then(r => r.json())
+      .then(data => {
         if (data.success) {
-          window.location.href = '/approved?student=' + studentData.student_id;
+          // Show success and redirect
+          document.getElementById("processing-message").innerHTML = 
+            `✅<br>${mealType} Approved!`;
+          setTimeout(() => {
+            window.location.href = `/approved?student=${studentData.student_id}`;
+          }, 1000);
         } else {
+          document.getElementById("processing-overlay").classList.remove("active");
           alert("❌ Error: " + data.message);
-          approveBtn.disabled = false;
-          approveBtn.textContent = "✓ APPROVE MEAL";
         }
       })
-      .catch((error) => {
-        alert("❌ Error: " + error.message);
-        approveBtn.disabled = false;
-        approveBtn.textContent = "✓ APPROVE MEAL";
+      .catch(err => {
+        document.getElementById("processing-overlay").classList.remove("active");
+        alert("❌ Error: " + err.message);
       });
   }
 
-  function clearCountdown() {
-    if (window.currentCountdown) clearInterval(window.currentCountdown);
+  function showDenialMessage(reason, mealType) {
+    document.getElementById("eligibility-status").style.display = "block";
+    document.getElementById("eligibility-status").className = "status-badge status-error";
+    document.getElementById("eligibility-status").textContent = "❌ " + reason;
+    
+    logDenial(studentData.student_id, reason, mealType);
+    
+    // Auto-return after 3 seconds
+    let timeLeft = 3;
+    const countdownDiv = document.createElement('div');
+    countdownDiv.style.cssText = 'font-size: 16px; color: #6b7280; margin-top: 15px;';
+    countdownDiv.innerHTML = `Returning in <span id="countdown">${timeLeft}</span> seconds...`;
+    document.getElementById("action-buttons").insertBefore(
+      countdownDiv, 
+      document.getElementById("action-buttons").firstChild
+    );
+
+    const interval = setInterval(() => {
+      timeLeft--;
+      const el = document.getElementById("countdown");
+      if (el) el.textContent = timeLeft;
+      if (timeLeft <= 0) {
+        clearInterval(interval);
+        clearLookupAndReturn();
+      }
+    }, 1000);
+    window.currentCountdown = interval;
+  }
+
+  function logDenial(studentId, reason, mealType) {
+    fetch("/api/deny-meal", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ 
+        student_id: studentId, 
+        meal_type: mealType, 
+        reason: reason 
+      }),
+    }).catch(() => {});
+  }
+
+  function showError(title, message) {
+    document.getElementById("student-name").textContent = title;
+    document.getElementById("eligibility-status").style.display = "block";
+    document.getElementById("eligibility-status").className = "status-badge status-error";
+    document.getElementById("eligibility-status").textContent = "❌ " + message;
+    setTimeout(() => clearLookupAndReturn(), 3000);
   }
   
   function clearLookupAndReturn() {
-    fetch("/api/clear-lookup", { method: "POST", headers: { "Content-Type": "application/json" } })
-      .then(() => { window.location.href = "/"; })
-      .catch(() => { window.location.href = "/"; });
+    fetch("/api/clear-lookup", { 
+      method: "POST", 
+      headers: { "Content-Type": "application/json" } 
+    })
+      .then(() => window.location.href = "/")
+      .catch(() => window.location.href = "/");
   }
 </script>
 {% endblock %}

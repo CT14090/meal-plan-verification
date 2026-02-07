@@ -1,12 +1,10 @@
 """
 Settings Module - Centralized configuration management
-Loads environment variables and provides application-wide settings
 """
 
 import os
 from dotenv import load_dotenv
 
-# Load environment variables from .env file
 load_dotenv()
 
 class Config:
@@ -27,11 +25,8 @@ class Config:
     def SQLALCHEMY_DATABASE_URI(self):
         """Generate SQLAlchemy database URI based on type"""
         if self.DATABASE_TYPE == 'mysql':
-            return (
-                f"mysql+pymysql://{self.MYSQL_USER}:{self.MYSQL_PASSWORD}"
-                f"@{self.MYSQL_HOST}:{self.MYSQL_PORT}/{self.MYSQL_DATABASE}"
-            )
-        else:  # SQLite
+            return f"mysql+pymysql://{self.MYSQL_USER}:{self.MYSQL_PASSWORD}@{self.MYSQL_HOST}:{self.MYSQL_PORT}/{self.MYSQL_DATABASE}"
+        else:
             return f"sqlite:///{self.DATABASE_PATH}"
     
     # Flask Configuration
@@ -42,7 +37,7 @@ class Config:
     
     # SQLAlchemy Settings
     SQLALCHEMY_TRACK_MODIFICATIONS = False
-    SQLALCHEMY_ECHO = False  # Disable SQL query logging in terminal
+    SQLALCHEMY_ECHO = False
     
     # Station Configuration
     STATION_ID = os.getenv('STATION_ID', 'Station_1')
@@ -50,24 +45,9 @@ class Config:
     
     # RFID Reader Configuration
     RFID_ENABLED = os.getenv('RFID_ENABLED', 'True').lower() == 'true'
-    RFID_TIMEOUT = int(os.getenv('RFID_TIMEOUT', 5))
     
     # MUNDOWARE Integration
     MUNDOWARE_ENABLED = os.getenv('MUNDOWARE_ENABLED', 'True').lower() == 'true'
-    MUNDOWARE_SHARED_TABLE = os.getenv('MUNDOWARE_SHARED_TABLE', 'mundoware_student_lookup')
-    MUNDOWARE_HOST = os.getenv('MUNDOWARE_HOST', 'localhost')
-    MUNDOWARE_PORT = int(os.getenv('MUNDOWARE_PORT', 3306))
-    MUNDOWARE_USER = os.getenv('MUNDOWARE_USER', 'mundoware_user')
-    MUNDOWARE_PASSWORD = os.getenv('MUNDOWARE_PASSWORD', '')
-    MUNDOWARE_DATABASE = os.getenv('MUNDOWARE_DATABASE', 'mundoware_db')
-    
-    @property
-    def MUNDOWARE_CONNECTION_STRING(self):
-        """Generate MUNDOWARE database connection string"""
-        return (
-            f"mysql+pymysql://{self.MUNDOWARE_USER}:{self.MUNDOWARE_PASSWORD}"
-            f"@{self.MUNDOWARE_HOST}:{self.MUNDOWARE_PORT}/{self.MUNDOWARE_DATABASE}"
-        )
     
     # Logging Configuration
     LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
@@ -84,18 +64,15 @@ class Config:
     # Encryption
     ENCRYPTION_KEY = os.getenv('ENCRYPTION_KEY')
     
-    # Business Rules - UPDATED WITH FRIDAY PLANS
+    # Meal Plan Types
     MEAL_PLAN_TYPES = {
-        # Regular meal plans
-        'Basic': 1,           # 1 lunch per day
-        'Plus': 2,            # 1 lunch + 1 snack per day
-        'Premium': 3,         # 1 breakfast + 1 lunch + 1 snack per day
-        'Unlimited': 999,     # Unlimited meals
-        
-        # Friday-only meal plans
-        'FridayBasic': 1,     # 1 lunch on Fridays only
-        'FridayPlus': 2,      # 1 lunch + 1 snack on Fridays only
-        'FridayPremium': 3,   # 1 breakfast + 1 lunch + 1 snack on Fridays only
+        'Basic': 1,
+        'Plus': 2,
+        'Premium': 3,
+        'Unlimited': 999,
+        'FridayBasic': 1,
+        'FridayPlus': 2,
+        'FridayPremium': 3,
     }
     
     # Meal type restrictions by plan
@@ -111,15 +88,6 @@ class Config:
     
     MEAL_TYPES = ['Breakfast', 'Lunch', 'Snack']
     
-    # Timezone configuration
-    TIMEZONE = 'America/Panama'  # Panama timezone (EST, UTC-5)
-
-    MEAL_TIME_WINDOWS = {
-    'Breakfast': {'start': 6, 'end': 8.5},    # 6:00 AM - 8:30 AM
-    'Lunch': {'start': 11, 'end': 14},        # 11:00 AM - 2:00 PM
-    'Snack': {'start': 9, 'end': 11},        # 9:00 AM - 11:00 AM
-}
-    
     # Transaction Statuses
     STATUS_APPROVED = 'Approved'
     STATUS_DENIED = 'Denied'
@@ -130,9 +98,7 @@ class Config:
         'LIMIT_REACHED': 'Daily meal limit reached',
         'MEAL_TYPE_NOT_ALLOWED': 'This meal type is not included in your plan',
         'MEAL_TYPE_ALREADY_USED': 'You already used this meal type today',
-        'NO_FRIDAY_PLAN': 'No meal plan for Fridays',
-        'NOT_FRIDAY': 'Friday-only meal plan (today is not Friday)',
-        'NO_PLAN': 'No active meal plan found',
+        'NO_FRIDAY_PLAN': 'Regular meal plans not valid on Fridays',
         'CARD_NOT_FOUND': 'Card not recognized',
         'INACTIVE': 'Student account inactive',
         'MANUAL_OVERRIDE': 'Manually denied by cashier'
@@ -151,50 +117,15 @@ class Config:
         """Validate critical configuration settings"""
         errors = []
         
-        # Check encryption key
         if not self.ENCRYPTION_KEY:
             errors.append("ENCRYPTION_KEY is not set in environment variables")
         
-        # Check database configuration
         if self.DATABASE_TYPE not in ['sqlite', 'mysql']:
             errors.append(f"Invalid DATABASE_TYPE: {self.DATABASE_TYPE}")
-        
-        if self.DATABASE_TYPE == 'mysql' and not self.MYSQL_PASSWORD:
-            errors.append("MYSQL_PASSWORD is required for MySQL database")
-        
-        # Check station ID
-        if not self.STATION_ID:
-            errors.append("STATION_ID is not set")
         
         if errors:
             raise ValueError("Configuration validation failed:\n" + "\n".join(errors))
         
         return True
 
-
-# Singleton instance
 config = Config()
-
-
-if __name__ == "__main__":
-    # Test configuration
-    print("=== Meal Plan Verification System Configuration ===\n")
-    
-    print(f"Database Type: {config.DATABASE_TYPE}")
-    print(f"Database URI: {config.SQLALCHEMY_DATABASE_URI}")
-    print(f"\nStation ID: {config.STATION_ID}")
-    print(f"Cashier ID: {config.CASHIER_ID}")
-    print(f"\nRFID Enabled: {config.RFID_ENABLED}")
-    print(f"MUNDOWARE Enabled: {config.MUNDOWARE_ENABLED}")
-    print(f"\nFlask Host: {config.FLASK_HOST}:{config.FLASK_PORT}")
-    print(f"Debug Mode: {config.FLASK_DEBUG}")
-    
-    print(f"\nMeal Plan Types: {config.MEAL_PLAN_TYPES}")
-    print(f"Meal Types: {config.MEAL_TYPES}")
-    
-    print("\nValidating configuration...")
-    try:
-        config.validate()
-        print("✅ Configuration valid!")
-    except ValueError as e:
-        print(f"❌ Configuration errors:\n{e}")
